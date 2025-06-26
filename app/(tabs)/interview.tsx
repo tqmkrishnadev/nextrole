@@ -25,7 +25,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer } from 'lucide-react-native';
+import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer, MessageCircle } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
 
 const { width, height } = Dimensions.get('window');
@@ -38,8 +38,8 @@ const interviewTypes = [
     icon: Brain,
     color: '#667eea',
     difficulty: 'Advanced',
-    duration: '10 min',
-    questions: 5
+    duration: '45 min',
+    questions: 12
   },
   {
     id: 'behavioral',
@@ -48,8 +48,8 @@ const interviewTypes = [
     icon: Users,
     color: '#f093fb',
     difficulty: 'Intermediate',
-    duration: '10 min',
-    questions: 5
+    duration: '30 min',
+    questions: 8
   },
   {
     id: 'leadership',
@@ -58,8 +58,8 @@ const interviewTypes = [
     icon: Award,
     color: '#4ecdc4',
     difficulty: 'Expert',
-    duration: '10 min',
-    questions: 5
+    duration: '60 min',
+    questions: 15
   },
 ];
 
@@ -127,17 +127,16 @@ export default function InterviewScreen() {
       cardsOpacity.value = withTiming(1, { duration: 800 });
     }, 200);
 
-    // Pulse animation for mic when recording
-    const interval = setInterval(() => {
-      if (isRecording) {
+    // Pulse animation for recording state
+    if (isRecording) {
+      const interval = setInterval(() => {
         pulseScale.value = withSequence(
           withTiming(1.1, { duration: 600 }),
           withTiming(1, { duration: 600 })
         );
-      }
-    }, 1200);
-
-    return () => clearInterval(interval);
+      }, 1200);
+      return () => clearInterval(interval);
+    }
   }, [isRecording]);
 
   const handleStartInterview = async (type: any) => {
@@ -171,17 +170,29 @@ export default function InterviewScreen() {
   };
 
   const handleRecordToggle = async () => {
-    if (conversationState !== 'waiting_for_response') {
+    console.log('Record toggle pressed. Current state:', { isRecording, conversationState });
+    
+    if (conversationState !== 'waiting_for_response' && conversationState !== 'user_speaking') {
       console.log('Cannot record in current state:', conversationState);
       return;
     }
 
-    if (isRecording) {
-      await stopRecording();
-    } else {
-      await startRecording();
+    try {
+      if (isRecording) {
+        console.log('Stopping recording...');
+        await stopRecording();
+      } else {
+        console.log('Starting recording...');
+        await startRecording();
+      }
+    } catch (error) {
+      console.error('Error toggling recording:', error);
+      Alert.alert(
+        'Recording Error',
+        'There was an issue with the recording. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
-    recordScale.value = withSpring(isRecording ? 1 : 0.9);
   };
 
   const handleManualSubmit = () => {
@@ -242,7 +253,7 @@ export default function InterviewScreen() {
       case 'processing_response':
         return { text: 'Processing your answer...', color: '#feca57' };
       case 'generating_followup':
-        return { text: 'Generating follow-up...', color: '#f093fb' };
+        return { text: 'AI is thinking...', color: '#f093fb' };
       default:
         return { text: 'Ready', color: '#667eea' };
     }
@@ -309,34 +320,56 @@ export default function InterviewScreen() {
     </Modal>
   );
 
-  // Conversation History Component
-  const ConversationHistory = () => (
-    <View style={styles.conversationHistory}>
-      <Text style={styles.conversationHistoryTitle}>Conversation</Text>
-      <ScrollView style={styles.conversationScrollView} showsVerticalScrollIndicator={false}>
-        {conversationHistory.map((turn, index) => (
-          <View key={turn.id} style={styles.conversationTurn}>
-            <View style={[
-              styles.conversationBubble,
-              turn.type === 'user_response' ? styles.userBubble : styles.aiBubble
-            ]}>
-              <Text style={[
-                styles.conversationText,
-                turn.type === 'user_response' ? styles.userText : styles.aiText
-              ]}>
-                {turn.content}
-              </Text>
-              {turn.duration && (
-                <Text style={styles.conversationDuration}>
-                  {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
-                </Text>
-              )}
-            </View>
+  // Conversation Bubble Component
+  const ConversationBubble = ({ turn, index }) => {
+    const isAI = turn.type === 'ai_question' || turn.type === 'ai_followup';
+    const bubbleOpacity = useSharedValue(0);
+    const bubbleTranslateY = useSharedValue(20);
+
+    React.useEffect(() => {
+      setTimeout(() => {
+        bubbleOpacity.value = withTiming(1, { duration: 500 });
+        bubbleTranslateY.value = withSpring(0, { damping: 15 });
+      }, index * 100);
+    }, []);
+
+    const bubbleStyle = useAnimatedStyle(() => {
+      return {
+        opacity: bubbleOpacity.value,
+        transform: [{ translateY: bubbleTranslateY.value }],
+      };
+    });
+
+    return (
+      <Animated.View style={[
+        styles.conversationBubble,
+        isAI ? styles.aiBubble : styles.userBubble,
+        bubbleStyle
+      ]}>
+        {isAI && (
+          <View style={styles.aiAvatar}>
+            <Brain color="#667eea" size={16} strokeWidth={2} />
           </View>
-        ))}
-      </ScrollView>
-    </View>
-  );
+        )}
+        <View style={[
+          styles.bubbleContent,
+          isAI ? styles.aiBubbleContent : styles.userBubbleContent
+        ]}>
+          <Text style={[
+            styles.bubbleText,
+            isAI ? styles.aiBubbleText : styles.userBubbleText
+          ]}>
+            {turn.content}
+          </Text>
+          {turn.duration && (
+            <Text style={styles.bubbleTime}>
+              {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
+            </Text>
+          )}
+        </View>
+      </Animated.View>
+    );
+  };
 
   // Feedback Screen
   if (feedback) {
@@ -428,7 +461,7 @@ export default function InterviewScreen() {
                         <View style={styles.suggestions}>
                           {item.suggestions.map((suggestion, suggestionIndex) => (
                             <Text key={suggestionIndex} style={styles.suggestionText}>
-                              <Text>• {suggestion}</Text>
+                              • {suggestion}
                             </Text>
                           ))}
                         </View>
@@ -478,6 +511,7 @@ export default function InterviewScreen() {
     const progress = totalQuestions > 0 ? (currentQuestionIndex + 1) / totalQuestions : 0;
     const hasResponse = responses.some(r => r.questionId === currentQuestion?.id);
     const stateDisplay = getConversationStateDisplay();
+    const canRecord = conversationState === 'waiting_for_response' || conversationState === 'user_speaking';
 
     return (
       <SafeAreaView style={styles.container}>
@@ -524,116 +558,76 @@ export default function InterviewScreen() {
               </View>
             </View>
 
-            {/* AI Interviewer */}
-            <View style={styles.interviewerContainer}>
-              <View style={styles.interviewerAvatar}>
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  style={styles.interviewerGradient}
-                >
-                  <Brain color="white" size={48} strokeWidth={2} />
-                </LinearGradient>
-              </View>
-              <Text style={styles.interviewerName}>AI Interviewer</Text>
-              <Text style={styles.interviewerRole}>Senior Technical Recruiter</Text>
-            </View>
-
-            {/* Current Question */}
-            <View style={styles.questionContainer}>
-              <BlurView intensity={20} style={styles.questionBlur}>
-                <View style={styles.questionContent}>
-                  <Text style={styles.questionText}>
-                    {currentQuestion?.question}
-                  </Text>
-                  
-                  <TouchableOpacity 
-                    style={styles.playQuestionButton}
-                    onPress={isPlaying ? stopPlaying : playQuestion}
-                    disabled={conversationState === 'ai_speaking'}
-                  >
-                    <LinearGradient
-                      colors={['rgba(102, 126, 234, 0.2)', 'rgba(118, 75, 162, 0.2)']}
-                      style={styles.playQuestionButtonGradient}
-                    >
-                      {isPlaying ? (
-                        <Pause color="#667eea" size={20} strokeWidth={2} />
-                      ) : (
-                        <Play color="#667eea" size={20} strokeWidth={2} />
-                      )}
-                      <Text style={styles.playQuestionButtonText}>
-                        {isPlaying ? 'Stop' : 'Replay Question'}
-                      </Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
+            {/* Conversation History */}
+            <ScrollView 
+              style={styles.conversationContainer}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.conversationContent}
+            >
+              {conversationHistory.map((turn, index) => (
+                <ConversationBubble key={turn.id} turn={turn} index={index} />
+              ))}
+              
+              {/* Live Transcript */}
+              {currentTranscript && (
+                <View style={styles.liveTranscriptContainer}>
+                  <Text style={styles.liveTranscriptLabel}>You're saying:</Text>
+                  <Text style={styles.liveTranscriptText}>{currentTranscript}</Text>
                 </View>
-              </BlurView>
-            </View>
-
-            {/* Current Transcript */}
-            {currentTranscript && (
-              <View style={styles.transcriptContainer}>
-                <Text style={styles.transcriptLabel}>Live Transcript:</Text>
-                <Text style={styles.transcriptText}>{currentTranscript}</Text>
-              </View>
-            )}
+              )}
+            </ScrollView>
 
             {/* Recording Controls */}
             <View style={styles.recordingControls}>
-              {currentQuestionIndex > 0 && (
-                <TouchableOpacity 
-                  style={styles.navButton} 
-                  onPress={previousQuestion}
-                  disabled={conversationState !== 'waiting_for_response'}
-                >
-                  <ArrowLeft color={conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
-                </TouchableOpacity>
-              )}
+              {/* Manual Input Button */}
+              <TouchableOpacity 
+                style={[styles.manualInputButton, !canRecord && styles.disabledButton]}
+                onPress={() => setShowManualInput(true)}
+                disabled={!canRecord}
+              >
+                <MessageCircle color={canRecord ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
+              </TouchableOpacity>
               
+              {/* Main Recording Button */}
               <View style={styles.recordingButtonContainer}>
-                <GestureDetector gesture={Gesture.Tap().onEnd(() => runOnJS(handleRecordToggle)())}>
-                  <Animated.View style={[styles.recordButton, recordStyle]}>
-                    <TouchableOpacity 
-                      onPress={handleRecordToggle}
-                      disabled={conversationState !== 'waiting_for_response'}
-                    >
-                      <LinearGradient
-                        colors={isRecording ? ['#ff6b6b', '#ff8e8e'] : ['#667eea', '#764ba2']}
-                        style={[
-                          styles.recordButtonGradient,
-                          conversationState !== 'waiting_for_response' && styles.recordButtonDisabled
-                        ]}
-                      >
-                        <Animated.View style={pulseStyle}>
-                          {isRecording ? (
-                            <Square color="white" size={32} strokeWidth={2} />
-                          ) : (
-                            <Mic color="white" size={32} strokeWidth={2} />
-                          )}
-                        </Animated.View>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </GestureDetector>
-                
                 <TouchableOpacity 
-                  style={styles.manualInputButton}
-                  onPress={() => setShowManualInput(true)}
-                  disabled={conversationState !== 'waiting_for_response'}
+                  style={[
+                    styles.recordButton,
+                    !canRecord && styles.disabledButton
+                  ]}
+                  onPress={handleRecordToggle}
+                  disabled={!canRecord}
+                  activeOpacity={0.8}
                 >
-                  <MessageSquare color={conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
+                  <LinearGradient
+                    colors={isRecording ? ['#ff6b6b', '#ff8e8e'] : ['#667eea', '#764ba2']}
+                    style={[
+                      styles.recordButtonGradient,
+                      !canRecord && styles.recordButtonDisabled
+                    ]}
+                  >
+                    <Animated.View style={pulseStyle}>
+                      {isRecording ? (
+                        <Square color="white" size={32} strokeWidth={2} />
+                      ) : (
+                        <Mic color="white" size={32} strokeWidth={2} />
+                      )}
+                    </Animated.View>
+                  </LinearGradient>
                 </TouchableOpacity>
+                
+                <Text style={styles.recordButtonLabel}>
+                  {isRecording ? 'Tap to Stop' : 'Tap to Speak'}
+                </Text>
               </View>
               
+              {/* Replay Question Button */}
               <TouchableOpacity 
-                style={[styles.navButton, !hasResponse && styles.navButtonDisabled]} 
-                onPress={handleNextQuestion}
-                disabled={!hasResponse || conversationState !== 'waiting_for_response'}
+                style={[styles.replayButton, !canRecord && styles.disabledButton]}
+                onPress={playQuestion}
+                disabled={!canRecord || isPlaying}
               >
-                {currentQuestionIndex === totalQuestions - 1 ? (
-                  <CheckCircle color={hasResponse && conversationState === 'waiting_for_response' ? "#4ecdc4" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
-                ) : (
-                  <ArrowRight color={hasResponse && conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
-                )}
+                <Play color={canRecord && !isPlaying ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
               </TouchableOpacity>
             </View>
 
@@ -655,11 +649,6 @@ export default function InterviewScreen() {
                 <CheckCircle color="#4ecdc4" size={16} strokeWidth={2} />
                 <Text style={styles.responseStatusText}>Response recorded</Text>
               </View>
-            )}
-
-            {/* Conversation History */}
-            {conversationHistory.length > 0 && (
-              <ConversationHistory />
             )}
           </View>
 
@@ -1186,103 +1175,94 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     marginLeft: 8,
   },
-  interviewerContainer: {
-    alignItems: 'center',
-    marginBottom: 32,
+  conversationContainer: {
+    flex: 1,
+    marginBottom: 20,
   },
-  interviewerAvatar: {
+  conversationContent: {
+    paddingBottom: 20,
+  },
+  conversationBubble: {
+    flexDirection: 'row',
     marginBottom: 16,
+    alignItems: 'flex-start',
   },
-  interviewerGradient: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  aiBubble: {
+    justifyContent: 'flex-start',
+  },
+  userBubble: {
+    justifyContent: 'flex-end',
+    flexDirection: 'row-reverse',
+  },
+  aiAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.4,
-    shadowRadius: 30,
-    elevation: 20,
+    marginRight: 12,
   },
-  interviewerName: {
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginBottom: 4,
-  },
-  interviewerRole: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  questionContainer: {
-    marginBottom: 32,
-  },
-  questionBlur: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  questionContent: {
-    padding: 24,
-  },
-  questionText: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: 'white',
-    lineHeight: 24,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  playQuestionButton: {
-    alignSelf: 'center',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  playQuestionButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(102, 126, 234, 0.3)',
-  },
-  playQuestionButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#667eea',
-    marginLeft: 8,
-  },
-  transcriptContainer: {
-    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-    borderRadius: 12,
+  bubbleContent: {
+    maxWidth: '75%',
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 20,
+  },
+  aiBubbleContent: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(102, 126, 234, 0.2)',
   },
-  transcriptLabel: {
+  userBubbleContent: {
+    backgroundColor: 'rgba(78, 205, 196, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(78, 205, 196, 0.2)',
+    marginLeft: 12,
+  },
+  bubbleText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 20,
+  },
+  aiBubbleText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  userBubbleText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  bubbleTime: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 8,
+  },
+  liveTranscriptContainer: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  liveTranscriptLabel: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     color: '#667eea',
     marginBottom: 8,
   },
-  transcriptText: {
+  liveTranscriptText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: 'white',
+    color: 'rgba(255, 255, 255, 0.9)',
     lineHeight: 20,
   },
   recordingControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 20,
   },
-  navButton: {
+  manualInputButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -1292,7 +1272,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  navButtonDisabled: {
+  replayButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  disabledButton: {
     opacity: 0.5,
   },
   recordingButtonContainer: {
@@ -1305,7 +1295,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 30,
     elevation: 20,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   recordButtonGradient: {
     width: 100,
@@ -1317,13 +1307,11 @@ const styles = StyleSheet.create({
   recordButtonDisabled: {
     opacity: 0.5,
   },
-  manualInputButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+  recordButtonLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
   },
   recordingStatus: {
     alignItems: 'center',
@@ -1368,55 +1356,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#4ecdc4',
     marginLeft: 8,
-  },
-  conversationHistory: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 20,
-    maxHeight: 200,
-  },
-  conversationHistoryTitle: {
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginBottom: 12,
-  },
-  conversationScrollView: {
-    flex: 1,
-  },
-  conversationTurn: {
-    marginBottom: 12,
-  },
-  conversationBubble: {
-    padding: 12,
-    borderRadius: 12,
-    maxWidth: '80%',
-  },
-  userBubble: {
-    backgroundColor: 'rgba(102, 126, 234, 0.2)',
-    alignSelf: 'flex-end',
-  },
-  aiBubble: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignSelf: 'flex-start',
-  },
-  conversationText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    lineHeight: 18,
-  },
-  userText: {
-    color: 'white',
-  },
-  aiText: {
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  conversationDuration: {
-    fontSize: 10,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginTop: 4,
   },
   // Modal Styles
   modalOverlay: {
