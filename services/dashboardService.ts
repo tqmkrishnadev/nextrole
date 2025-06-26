@@ -75,7 +75,7 @@ class DashboardService {
       const { data: resumes, error: resumesError } = await supabase
         .from('resumes')
         .select('*')
-        .or(`user_id.eq.${userId},userId.eq.${userId}`); // Check both possible foreign key columns
+        .eq('userId', userId);
 
       if (resumesError) {
         console.error('Error fetching resumes:', resumesError);
@@ -192,7 +192,7 @@ class DashboardService {
       const { data: resumes, error } = await supabase
         .from('resumes')
         .select('*')
-        .or(`user_id.eq.${userId},userId.eq.${userId}`)
+        .eq('userId', userId)
         .limit(1);
 
       if (error) {
