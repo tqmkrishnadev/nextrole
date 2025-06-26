@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { Platform, Alert } from 'react-native';
 import AIInterviewService, { InterviewQuestion, InterviewResponse, InterviewFeedback, ConversationTurn } from '@/services/aiInterviewService';
 import * as Speech from 'expo-speech';
-import { Audio } from 'expo-av';
+import { Audio as ExpoAudio } from 'expo-av';
 
 export interface UseAIInterviewReturn {
   // State
@@ -51,8 +51,8 @@ export function useAIInterview(): UseAIInterviewReturn {
   const [currentTranscript, setCurrentTranscript] = useState('');
   
   const aiService = AIInterviewService.getInstance();
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const recordingRef = useRef<ExpoAudio.Recording | null>(null);
+  const soundRef = useRef<ExpoAudio.Sound | null>(null);
   const recordingStartTime = useRef<number>(0);
   const speechRecognitionRef = useRef<any>(null);
   const isRecordingRef = useRef(false);
@@ -82,7 +82,7 @@ export function useAIInterview(): UseAIInterviewReturn {
         setPermissionsGranted(false);
         return false;
       } else {
-        const { status } = await Audio.requestPermissionsAsync();
+        const { status } = await ExpoAudio.requestPermissionsAsync();
         const granted = status === 'granted';
         setPermissionsGranted(granted);
         
@@ -240,7 +240,7 @@ export function useAIInterview(): UseAIInterviewReturn {
         try {
           const audioUrl = await aiService.textToSpeech(text);
           if (audioUrl && audioUrl.startsWith('data:')) {
-            const audio = new Audio(audioUrl);
+            const audio = new window.Audio(audioUrl);
             audio.onended = () => {
               setIsPlaying(false);
               setConversationState('waiting_for_response');
@@ -471,7 +471,7 @@ export function useAIInterview(): UseAIInterviewReturn {
         try {
           console.log('Setting up mobile recording...');
           
-          await Audio.setAudioModeAsync({
+          await ExpoAudio.setAudioModeAsync({
             allowsRecordingIOS: true,
             playsInSilentModeIOS: true,
             shouldDuckAndroid: true,
@@ -479,22 +479,22 @@ export function useAIInterview(): UseAIInterviewReturn {
             staysActiveInBackground: false,
           });
 
-          const recording = new Audio.Recording();
+          const recording = new ExpoAudio.Recording();
           
           const recordingOptions = {
-            ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+            ...ExpoAudio.RecordingOptionsPresets.HIGH_QUALITY,
             android: {
               extension: '.m4a',
-              outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-              audioEncoder: Audio.AndroidAudioEncoder.AAC,
+              outputFormat: ExpoAudio.AndroidOutputFormat.MPEG_4,
+              audioEncoder: ExpoAudio.AndroidAudioEncoder.AAC,
               sampleRate: 44100,
               numberOfChannels: 2,
               bitRate: 128000,
             },
             ios: {
               extension: '.m4a',
-              outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-              audioQuality: Audio.IOSAudioQuality.HIGH,
+              outputFormat: ExpoAudio.IOSOutputFormat.MPEG4AAC,
+              audioQuality: ExpoAudio.IOSAudioQuality.HIGH,
               sampleRate: 44100,
               numberOfChannels: 2,
               bitRate: 128000,
@@ -665,7 +665,7 @@ export function useAIInterview(): UseAIInterviewReturn {
             }
           } finally {
             try {
-              await Audio.setAudioModeAsync({
+              await ExpoAudio.setAudioModeAsync({
                 allowsRecordingIOS: false,
                 playsInSilentModeIOS: true,
                 shouldDuckAndroid: true,

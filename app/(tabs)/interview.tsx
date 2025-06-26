@@ -89,6 +89,7 @@ export default function InterviewScreen() {
   const [manualResponse, setManualResponse] = useState('');
   const [showPermissionModal, setShowPermissionModal] = useState(false);
 
+  // Always call useAIInterview hook at the top level
   const {
     currentQuestion,
     currentQuestionIndex,
@@ -323,56 +324,55 @@ export default function InterviewScreen() {
   );
 
   // Conversation Bubble Component
-  const ConversationBubble = ({ turn, index }) => {
-  const isAI = turn.type === 'ai_question' || turn.type === 'ai_followup';
-  const bubbleOpacity = useSharedValue(0);
-  const bubbleTranslateY = useSharedValue(20);
-  const hasAnimated = React.useRef(false);
+  const ConversationBubble = ({ turn, index }: { turn: any; index: number }) => {
+    const isAI = turn.type === 'ai_question' || turn.type === 'ai_followup';
+    const bubbleOpacity = useSharedValue(0);
+    const bubbleTranslateY = useSharedValue(20);
 
- React.useEffect(() => {
-  setTimeout(() => {
-    bubbleOpacity.value = withTiming(1, { duration: 500 });
-    bubbleTranslateY.value = withSpring(0, { damping: 15 });
-  }, index * 100);
-}, []);
+    React.useEffect(() => {
+      setTimeout(() => {
+        bubbleOpacity.value = withTiming(1, { duration: 500 });
+        bubbleTranslateY.value = withSpring(0, { damping: 15 });
+      }, index * 100);
+    }, []);
 
-  const bubbleStyle = useAnimatedStyle(() => {
-    return {
-      opacity: bubbleOpacity.value,
-      transform: [{ translateY: bubbleTranslateY.value }],
-    };
-  });
+    const bubbleStyle = useAnimatedStyle(() => {
+      return {
+        opacity: bubbleOpacity.value,
+        transform: [{ translateY: bubbleTranslateY.value }],
+      };
+    });
 
-  return (
-    <Animated.View style={[
-      styles.conversationBubble,
-      isAI ? styles.aiBubble : styles.userBubble,
-      bubbleStyle
-    ]}>
-      {isAI && (
-        <View style={styles.aiAvatar}>
-          <Brain color="#667eea" size={16} strokeWidth={2} />
-        </View>
-      )}
-      <View style={[
-        styles.bubbleContent,
-        isAI ? styles.aiBubbleContent : styles.userBubbleContent
+    return (
+      <Animated.View style={[
+        styles.conversationBubble,
+        isAI ? styles.aiBubble : styles.userBubble,
+        bubbleStyle
       ]}>
-        <Text style={[
-          styles.bubbleText,
-          isAI ? styles.aiBubbleText : styles.userBubbleText
-        ]}>
-          {turn.content}
-        </Text>
-        {turn.duration && (
-          <Text style={styles.bubbleTime}>
-            {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
-          </Text>
+        {isAI && (
+          <View style={styles.aiAvatar}>
+            <Brain color="#667eea" size={16} strokeWidth={2} />
+          </View>
         )}
-      </View>
-    </Animated.View>
-  );
-};
+        <View style={[
+          styles.bubbleContent,
+          isAI ? styles.aiBubbleContent : styles.userBubbleContent
+        ]}>
+          <Text style={[
+            styles.bubbleText,
+            isAI ? styles.aiBubbleText : styles.userBubbleText
+          ]}>
+            {turn.content}
+          </Text>
+          {turn.duration && (
+            <Text style={styles.bubbleTime}>
+              {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
+            </Text>
+          )}
+        </View>
+      </Animated.View>
+    );
+  };
 
   // Feedback Screen
   if (feedback) {
@@ -425,9 +425,10 @@ export default function InterviewScreen() {
 
               {/* Strengths */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} /> Strengths
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Strengths</Text>
+                </View>
                 {feedback.strengths.map((strength, index) => (
                   <View key={index} style={styles.feedbackItem}>
                     <Text style={styles.feedbackItemText}>{strength}</Text>
@@ -437,9 +438,10 @@ export default function InterviewScreen() {
 
               {/* Areas for Improvement */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <Target color="#f093fb" size={20} strokeWidth={2} /> Areas for Improvement
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <Target color="#f093fb" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Areas for Improvement</Text>
+                </View>
                 {feedback.improvements.map((improvement, index) => (
                   <View key={index} style={styles.feedbackItem}>
                     <Text style={styles.feedbackItemText}>{improvement}</Text>
@@ -449,9 +451,10 @@ export default function InterviewScreen() {
 
               {/* Detailed Question Feedback */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <MessageSquare color="#667eea" size={20} strokeWidth={2} /> Question-by-Question Feedback
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <MessageSquare color="#667eea" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Question-by-Question Feedback</Text>
+                </View>
                 {feedback.detailedFeedback.map((item, index) => (
                   <View key={index} style={styles.questionFeedbackCard}>
                     <BlurView intensity={20} style={styles.questionFeedbackBlur}>
@@ -476,9 +479,10 @@ export default function InterviewScreen() {
 
               {/* Recommendations */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <BookOpen color="#feca57" size={20} strokeWidth={2} /> Recommendations
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <BookOpen color="#feca57" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Recommendations</Text>
+                </View>
                 {feedback.recommendations.map((recommendation, index) => (
                   <View key={index} style={styles.recommendationItem}>
                     <Text style={styles.recommendationText}>{recommendation}</Text>
@@ -516,7 +520,7 @@ export default function InterviewScreen() {
     const stateDisplay = getConversationStateDisplay();
     const canRecord = conversationState === 'waiting_for_response' || conversationState === 'user_speaking';
 
-const insets = useSafeAreaInsets();
+    const insets = useSafeAreaInsets();
     return (
       <SafeAreaView style={styles.container}>
         <LinearGradient
@@ -919,6 +923,17 @@ const styles = StyleSheet.create({
     fontFamily: 'SpaceGrotesk-SemiBold',
     color: 'white',
     marginBottom: 20,
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  sectionTitleText: {
+    fontSize: 20,
+    fontFamily: 'SpaceGrotesk-SemiBold',
+    color: 'white',
+    marginLeft: 8,
   },
   typeCard: {
     marginBottom: 16,
