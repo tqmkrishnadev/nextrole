@@ -47,7 +47,7 @@ export function useAIInterview(): UseAIInterviewReturn {
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [conversationState, setConversationState] = useState<'idle' | 'ai_speaking' | 'waiting_for_response' | 'user_speaking' | 'processing_response' | 'generating_followup'>('idle');
   const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
-  const [interviewTimeRemaining, setInterviewTimeRemaining] = useState(600); // 10 minutes
+  const [interviewTimeRemaining, setInterviewTimeRemaining] = useState(300); // 10 minutes
   const [currentTranscript, setCurrentTranscript] = useState('');
   
   const aiService = AIInterviewService.getInstance();
@@ -156,7 +156,7 @@ export function useAIInterview(): UseAIInterviewReturn {
       setInterviewStarted(true);
       setConversationState('idle');
       setConversationHistory([]);
-      setInterviewTimeRemaining(600); // Reset to 10 minutes
+      setInterviewTimeRemaining(300); // Reset to 10 minutes
       aiService.clearConversationHistory();
       
       console.log('Interview started successfully');
@@ -864,7 +864,7 @@ export function useAIInterview(): UseAIInterviewReturn {
     setInterviewStarted(false);
     setConversationState('idle');
     setConversationHistory([]);
-    setInterviewTimeRemaining(600);
+    setInterviewTimeRemaining(300);
     setCurrentTranscript('');
     aiService.clearConversationHistory();
   }, [stopPlaying]);

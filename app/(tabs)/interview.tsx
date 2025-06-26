@@ -27,6 +27,7 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer, MessageCircle } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -259,6 +260,7 @@ export default function InterviewScreen() {
     }
   };
 
+  
   // Permission Modal
   const PermissionModal = () => (
     <Modal
@@ -322,54 +324,55 @@ export default function InterviewScreen() {
 
   // Conversation Bubble Component
   const ConversationBubble = ({ turn, index }) => {
-    const isAI = turn.type === 'ai_question' || turn.type === 'ai_followup';
-    const bubbleOpacity = useSharedValue(0);
-    const bubbleTranslateY = useSharedValue(20);
+  const isAI = turn.type === 'ai_question' || turn.type === 'ai_followup';
+  const bubbleOpacity = useSharedValue(0);
+  const bubbleTranslateY = useSharedValue(20);
+  const hasAnimated = React.useRef(false);
 
-    React.useEffect(() => {
-      setTimeout(() => {
-        bubbleOpacity.value = withTiming(1, { duration: 500 });
-        bubbleTranslateY.value = withSpring(0, { damping: 15 });
-      }, index * 100);
-    }, []);
+ React.useEffect(() => {
+  setTimeout(() => {
+    bubbleOpacity.value = withTiming(1, { duration: 500 });
+    bubbleTranslateY.value = withSpring(0, { damping: 15 });
+  }, index * 100);
+}, []);
 
-    const bubbleStyle = useAnimatedStyle(() => {
-      return {
-        opacity: bubbleOpacity.value,
-        transform: [{ translateY: bubbleTranslateY.value }],
-      };
-    });
+  const bubbleStyle = useAnimatedStyle(() => {
+    return {
+      opacity: bubbleOpacity.value,
+      transform: [{ translateY: bubbleTranslateY.value }],
+    };
+  });
 
-    return (
-      <Animated.View style={[
-        styles.conversationBubble,
-        isAI ? styles.aiBubble : styles.userBubble,
-        bubbleStyle
-      ]}>
-        {isAI && (
-          <View style={styles.aiAvatar}>
-            <Brain color="#667eea" size={16} strokeWidth={2} />
-          </View>
-        )}
-        <View style={[
-          styles.bubbleContent,
-          isAI ? styles.aiBubbleContent : styles.userBubbleContent
-        ]}>
-          <Text style={[
-            styles.bubbleText,
-            isAI ? styles.aiBubbleText : styles.userBubbleText
-          ]}>
-            {turn.content}
-          </Text>
-          {turn.duration && (
-            <Text style={styles.bubbleTime}>
-              {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
-            </Text>
-          )}
+  return (
+    <Animated.View style={[
+      styles.conversationBubble,
+      isAI ? styles.aiBubble : styles.userBubble,
+      bubbleStyle
+    ]}>
+      {isAI && (
+        <View style={styles.aiAvatar}>
+          <Brain color="#667eea" size={16} strokeWidth={2} />
         </View>
-      </Animated.View>
-    );
-  };
+      )}
+      <View style={[
+        styles.bubbleContent,
+        isAI ? styles.aiBubbleContent : styles.userBubbleContent
+      ]}>
+        <Text style={[
+          styles.bubbleText,
+          isAI ? styles.aiBubbleText : styles.userBubbleText
+        ]}>
+          {turn.content}
+        </Text>
+        {turn.duration && (
+          <Text style={styles.bubbleTime}>
+            {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
+          </Text>
+        )}
+      </View>
+    </Animated.View>
+  );
+};
 
   // Feedback Screen
   if (feedback) {
@@ -513,13 +516,14 @@ export default function InterviewScreen() {
     const stateDisplay = getConversationStateDisplay();
     const canRecord = conversationState === 'waiting_for_response' || conversationState === 'user_speaking';
 
+const insets = useSafeAreaInsets();
     return (
       <SafeAreaView style={styles.container}>
         <LinearGradient
           colors={['#0a0a0a', '#1a1a2e', '#16213e']}
           style={styles.gradient}
         >
-          <View style={styles.sessionContainer}>
+          <View style={[styles.sessionContainer, { paddingBottom: 30 + insets.bottom }]}>
             {/* Session Header */}
             <View style={styles.sessionHeader}>
               <TouchableOpacity 
