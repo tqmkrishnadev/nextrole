@@ -418,9 +418,10 @@ export default function InterviewScreen() {
 
               {/* Strengths */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} /> Strengths
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Strengths</Text>
+                </View>
                 {feedback.strengths.map((strength, index) => (
                   <View key={index} style={styles.feedbackItem}>
                     <Text style={styles.feedbackItemText}>{strength}</Text>
@@ -430,9 +431,10 @@ export default function InterviewScreen() {
 
               {/* Areas for Improvement */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <Target color="#f093fb" size={20} strokeWidth={2} /> Areas for Improvement
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <Target color="#f093fb" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Areas for Improvement</Text>
+                </View>
                 {feedback.improvements.map((improvement, index) => (
                   <View key={index} style={styles.feedbackItem}>
                     <Text style={styles.feedbackItemText}>{improvement}</Text>
@@ -442,9 +444,10 @@ export default function InterviewScreen() {
 
               {/* Detailed Question Feedback */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <MessageSquare color="#667eea" size={20} strokeWidth={2} /> Question-by-Question Feedback
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <MessageSquare color="#667eea" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Question-by-Question Feedback</Text>
+                </View>
                 {feedback.detailedFeedback.map((item, index) => (
                   <View key={index} style={styles.questionFeedbackCard}>
                     <BlurView intensity={20} style={styles.questionFeedbackBlur}>
@@ -469,9 +472,10 @@ export default function InterviewScreen() {
 
               {/* Recommendations */}
               <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>
-                  <BookOpen color="#feca57" size={20} strokeWidth={2} /> Recommendations
-                </Text>
+                <View style={styles.sectionTitleContainer}>
+                  <BookOpen color="#feca57" size={20} strokeWidth={2} />
+                  <Text style={styles.sectionTitleText}>Recommendations</Text>
+                </View>
                 {feedback.recommendations.map((recommendation, index) => (
                   <View key={index} style={styles.recommendationItem}>
                     <Text style={styles.recommendationText}>{recommendation}</Text>
@@ -903,6 +907,17 @@ const styles = StyleSheet.create({
     fontFamily: 'SpaceGrotesk-SemiBold',
     color: 'white',
     marginBottom: 20,
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  sectionTitleText: {
+    fontSize: 20,
+    fontFamily: 'SpaceGrotesk-SemiBold',
+    color: 'white',
+    marginLeft: 8,
   },
   typeCard: {
     marginBottom: 16,
