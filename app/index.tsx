@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,9 @@ export default function WelcomeScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Track if component is mounted to prevent state updates on unmounted component
+  const isMountedRef = useRef(true);
+  
   const { safePush } = useSafeNavigation();
   const { pickDocument } = useSafeDocumentPicker();
   const { user, loading } = useAuth();
@@ -41,10 +44,19 @@ export default function WelcomeScreen() {
   const pulseScale = useSharedValue(1);
   const shimmerX = useSharedValue(-width);
 
+  // Cleanup function to mark component as unmounted
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Don't redirect authenticated users here - let NavigationHandler handle it
   // This prevents the flash of welcome screen for authenticated users
 
   const handleResumeUpload = async () => {
+    if (!isMountedRef.current) return;
+    
     setError(null);
     
     if (Platform.OS === 'web') {
@@ -60,9 +72,12 @@ export default function WelcomeScreen() {
 
     await safeAsyncHandler(
       async () => {
+        if (!isMountedRef.current) return;
         setIsProcessing(true);
         
         const result = await pickDocument();
+        
+        if (!isMountedRef.current) return;
         
         if (!result.success) {
           if (result.error && result.error !== 'User cancelled') {
@@ -74,18 +89,22 @@ export default function WelcomeScreen() {
 
         setUploadedFile(result.file);
         
-        // Simulate AI processing
+        // Simulate AI processing with mounted check
         setTimeout(() => {
-          setIsProcessing(false);
-          safePush('/(auth)/signin');
+          if (isMountedRef.current) {
+            setIsProcessing(false);
+            safePush('/(auth)/signin');
+          }
         }, 3000);
       },
       {
         action: 'resume_upload',
         showError: true,
         fallback: () => {
-          setIsProcessing(false);
-          setError('Failed to upload resume. Please try again.');
+          if (isMountedRef.current) {
+            setIsProcessing(false);
+            setError('Failed to upload resume. Please try again.');
+          }
         }
       }
     );
@@ -121,6 +140,8 @@ export default function WelcomeScreen() {
     );
     
     const interval = setInterval(() => {
+      if (!isMountedRef.current) return;
+      
       pulseScale.value = withSequence(
         withTiming(1.05, { duration: 2000 }),
         withTiming(1, { duration: 2000 })
