@@ -21,25 +21,7 @@ import Animated, {
   Extrapolate,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { 
-  Mic, 
-  MicOff, 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  Send,
-  Brain,
-  Clock,
-  MessageCircle,
-  User,
-  Bot,
-  CheckCircle,
-  AlertCircle,
-  Award,
-  TrendingUp,
-  Target,
-  Zap
-} from 'lucide-react-native';
+import { Mic, MicOff, Play, Pause, RotateCcw, Send, Brain, Clock, MessageCircle, User, Bot, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Award, TrendingUp, Target, Zap } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
 import { AuthGuard } from '@/components/AuthGuard';
 
