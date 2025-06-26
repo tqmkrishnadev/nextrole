@@ -460,7 +460,7 @@ export default function InterviewScreen() {
                         <View style={styles.suggestions}>
                           {item.suggestions.map((suggestion, suggestionIndex) => (
                             <Text key={suggestionIndex} style={styles.suggestionText}>
-                              • {suggestion}
+                              <Text>• {suggestion}</Text>
                             </Text>
                           ))}
                         </View>
