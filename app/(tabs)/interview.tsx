@@ -1,15 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
+  ScrollView,
   TouchableOpacity,
   Dimensions,
-  ScrollView,
-  Image,
   Platform,
-  TextInput,
-  Modal,
   Alert
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,76 +17,128 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  withSequence,
   interpolate,
-  runOnJS,
+  Extrapolate,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer, MessageCircle } from 'lucide-react-native';
+import { 
+  Mic, 
+  MicOff, 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  Send,
+  Brain,
+  Clock,
+  MessageCircle,
+  User,
+  Bot,
+  CheckCircle,
+  AlertCircle,
+  Award,
+  TrendingUp,
+  Target,
+  Zap
+} from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AuthGuard } from '@/components/AuthGuard';
 
 const { width, height } = Dimensions.get('window');
 
-const interviewTypes = [
-  {
-    id: 'technical',
-    title: 'Technical Interview',
-    description: 'Practice coding problems and technical questions',
-    icon: Brain,
-    color: '#667eea',
-    difficulty: 'Advanced',
-    duration: '45 min',
-    questions: 12
-  },
-  {
-    id: 'behavioral',
-    title: 'Behavioral Interview',
-    description: 'Master STAR method and soft skills',
-    icon: Users,
-    color: '#f093fb',
-    difficulty: 'Intermediate',
-    duration: '30 min',
-    questions: 8
-  },
-  {
-    id: 'leadership',
-    title: 'Leadership Interview',
-    description: 'Executive and management focused questions',
-    icon: Award,
-    color: '#4ecdc4',
-    difficulty: 'Expert',
-    duration: '60 min',
-    questions: 15
-  },
-];
+// Memoized conversation item component to prevent unnecessary re-renders
+const ConversationItem = React.memo(({ item, index }: { item: any; index: number }) => {
+  const isAI = item.type === 'ai_question' || item.type === 'ai_followup';
+  const itemOpacity = useSharedValue(0);
+  const itemTranslateY = useSharedValue(20);
 
-const recentSessions = [
-  {
-    id: '1',
-    type: 'Technical Interview',
-    score: 87,
-    date: '2 hours ago',
-    feedback: 'Great problem-solving approach',
-    avatar: 'https://images.pexels.com/photos/3184292/pexels-photo-3184292.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop'
-  },
-  {
-    id: '2',
-    type: 'Behavioral Interview',
-    score: 92,
-    date: 'Yesterday',
-    feedback: 'Excellent STAR examples',
-    avatar: 'https://images.pexels.com/photos/3184297/pexels-photo-3184297.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop'
-  },
-];
+  React.useEffect(() => {
+    setTimeout(() => {
+      itemOpacity.value = withTiming(1, { duration: 500 });
+      itemTranslateY.value = withSpring(0, { damping: 15 });
+    }, index * 100);
+  }, []);
 
-export default function InterviewScreen() {
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [showManualInput, setShowManualInput] = useState(false);
+  const itemStyle = useAnimatedStyle(() => {
+    return {
+      opacity: itemOpacity.value,
+      transform: [{ translateY: itemTranslateY.value }],
+    };
+  });
+
+  return (
+    <Animated.View style={[styles.conversationItem, itemStyle]}>
+      <View style={[styles.messageContainer, isAI ? styles.aiMessage : styles.userMessage]}>
+        <View style={styles.messageHeader}>
+          <View style={[styles.avatarContainer, isAI ? styles.aiAvatar : styles.userAvatar]}>
+            {isAI ? (
+              <Bot color="white" size={16} strokeWidth={2} />
+            ) : (
+              <User color="white" size={16} strokeWidth={2} />
+            )}
+          </View>
+          <Text style={styles.messageSender}>
+            {isAI ? 'AI Interviewer' : 'You'}
+          </Text>
+          {item.duration && (
+            <View style={styles.durationBadge}>
+              <Clock color="rgba(255, 255, 255, 0.6)" size={12} />
+              <Text style={styles.durationText}>{item.duration}s</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.messageText}>{item.content}</Text>
+      </View>
+    </Animated.View>
+  );
+});
+
+// Memoized timer component to isolate timer updates
+const InterviewTimer = React.memo(({ timeRemaining }: { timeRemaining: number }) => {
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const isLowTime = timeRemaining < 60;
+
+  const timerStyle = useAnimatedStyle(() => {
+    const scale = isLowTime ? 
+      interpolate(timeRemaining % 2, [0, 1], [1, 1.05], Extrapolate.CLAMP) : 1;
+    
+    return {
+      transform: [{ scale }],
+    };
+  });
+
+  return (
+    <Animated.View style={[styles.timerContainer, timerStyle]}>
+      <Clock color={isLowTime ? "#ff6b6b" : "#4ecdc4"} size={16} strokeWidth={2} />
+      <Text style={[styles.timerText, isLowTime && styles.timerTextLow]}>
+        {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
+      </Text>
+    </Animated.View>
+  );
+});
+
+// Memoized conversation list component
+const ConversationList = React.memo(({ conversationHistory }: { conversationHistory: any[] }) => {
+  return (
+    <ScrollView 
+      style={styles.conversationList}
+      contentContainerStyle={styles.conversationContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {conversationHistory.map((item, index) => (
+        <ConversationItem key={item.id} item={item} index={index} />
+      ))}
+    </ScrollView>
+  );
+});
+
+function InterviewContent() {
+  const [selectedType, setSelectedType] = useState<'behavioral' | 'technical' | 'leadership' | null>(null);
   const [manualResponse, setManualResponse] = useState('');
-  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
-  // Always call useAIInterview hook at the top level
+  // Use the AI interview hook
   const {
     currentQuestion,
     currentQuestionIndex,
@@ -118,766 +167,402 @@ export default function InterviewScreen() {
     requestPermissions,
   } = useAIInterview();
 
-  const pulseScale = useSharedValue(1);
-  const recordScale = useSharedValue(1);
-  const headerOpacity = useSharedValue(0);
-  const cardsOpacity = useSharedValue(0);
+  const handleStartInterview = useCallback(async (type: 'behavioral' | 'technical' | 'leadership') => {
+    setSelectedType(type);
+    setShowFeedback(false);
+    await startInterview(type);
+  }, [startInterview]);
 
-  React.useEffect(() => {
-    headerOpacity.value = withTiming(1, { duration: 800 });
-    setTimeout(() => {
-      cardsOpacity.value = withTiming(1, { duration: 800 });
-    }, 200);
-
-    // Pulse animation for recording state
-    if (isRecording) {
-      const interval = setInterval(() => {
-        pulseScale.value = withSequence(
-          withTiming(1.1, { duration: 600 }),
-          withTiming(1, { duration: 600 })
-        );
-      }, 1200);
-      return () => clearInterval(interval);
-    }
-  }, [isRecording]);
-
-  const handleStartInterview = async (type: any) => {
-    console.log('Interview type selected:', type.id);
-    setSelectedType(type.id);
-    
-    try {
-      await startInterview(type.id as 'behavioral' | 'technical' | 'leadership');
-      console.log('Interview started successfully');
-    } catch (error) {
-      console.error('Failed to start interview:', error);
-      Alert.alert(
-        'Error',
-        'Failed to start the interview. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handlePermissionRequest = async () => {
-    const granted = await requestPermissions();
-    setShowPermissionModal(false);
-    
-    if (!granted) {
-      Alert.alert(
-        'Permission Required',
-        'Microphone access is needed for the best interview experience. You can still continue with manual text input.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handleRecordToggle = async () => {
-    console.log('Record toggle pressed. Current state:', { isRecording, conversationState });
-    
-    if (conversationState !== 'waiting_for_response' && conversationState !== 'user_speaking') {
-      console.log('Cannot record in current state:', conversationState);
-      return;
-    }
-
-    try {
-      if (isRecording) {
-        console.log('Stopping recording...');
-        await stopRecording();
-      } else {
-        console.log('Starting recording...');
-        await startRecording();
-      }
-    } catch (error) {
-      console.error('Error toggling recording:', error);
-      Alert.alert(
-        'Recording Error',
-        'There was an issue with the recording. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handleManualSubmit = () => {
+  const handleSubmitManualResponse = useCallback(() => {
     if (manualResponse.trim()) {
       submitResponse(manualResponse.trim());
       setManualResponse('');
       setShowManualInput(false);
     }
-  };
+  }, [manualResponse, submitResponse]);
 
-  const handleNextQuestion = () => {
-    if (currentQuestionIndex < totalQuestions - 1) {
-      nextQuestion();
-    } else {
-      finishInterview();
+  const handleFinishInterview = useCallback(async () => {
+    await finishInterview();
+    setShowFeedback(true);
+  }, [finishInterview]);
+
+  const handleResetInterview = useCallback(() => {
+    resetInterview();
+    setSelectedType(null);
+    setManualResponse('');
+    setShowManualInput(false);
+    setShowFeedback(false);
+  }, [resetInterview]);
+
+  // Memoize the interview type cards to prevent unnecessary re-renders
+  const interviewTypeCards = useMemo(() => [
+    {
+      type: 'behavioral' as const,
+      title: 'Behavioral Interview',
+      description: 'Practice answering questions about your past experiences and how you handle various situations.',
+      icon: MessageCircle,
+      color: '#667eea',
+      gradient: ['#667eea', '#764ba2']
+    },
+    {
+      type: 'technical' as const,
+      title: 'Technical Interview',
+      description: 'Test your technical knowledge and problem-solving skills in your field of expertise.',
+      icon: Brain,
+      color: '#f093fb',
+      gradient: ['#f093fb', '#f5576c']
+    },
+    {
+      type: 'leadership' as const,
+      title: 'Leadership Interview',
+      description: 'Demonstrate your leadership abilities and experience managing teams and projects.',
+      icon: Target,
+      color: '#4ecdc4',
+      gradient: ['#4ecdc4', '#44a08d']
     }
-  };
+  ], []);
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const headerStyle = useAnimatedStyle(() => {
-    return {
-      opacity: headerOpacity.value,
-    };
-  });
-
-  const cardsStyle = useAnimatedStyle(() => {
-    return {
-      opacity: cardsOpacity.value,
-    };
-  });
-
-  const pulseStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: pulseScale.value }],
-    };
-  });
-
-  const recordStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: recordScale.value }],
-    };
-  });
-
-  // Get conversation state display
-  const getConversationStateDisplay = () => {
-    switch (conversationState) {
-      case 'ai_speaking':
-        return { text: 'AI is speaking...', color: '#f093fb' };
-      case 'waiting_for_response':
-        return { text: 'Your turn to speak', color: '#4ecdc4' };
-      case 'user_speaking':
-        return { text: 'Listening...', color: '#667eea' };
-      case 'processing_response':
-        return { text: 'Processing your answer...', color: '#feca57' };
-      case 'generating_followup':
-        return { text: 'AI is thinking...', color: '#f093fb' };
-      default:
-        return { text: 'Ready', color: '#667eea' };
-    }
-  };
-
-  
-  // Permission Modal
-  const PermissionModal = () => (
-    <Modal
-      visible={showPermissionModal}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setShowPermissionModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <BlurView intensity={20} style={styles.permissionModalBlur}>
-          <View style={styles.permissionModalContent}>
-            <View style={styles.permissionIconContainer}>
-              <Shield color="#667eea" size={48} strokeWidth={2} />
-            </View>
-            
-            <Text style={styles.permissionModalTitle}>Microphone Access Required</Text>
-            <Text style={styles.permissionModalText}>
-              To provide the best interview experience, we need access to your microphone to record your responses.
-            </Text>
-            
-            <View style={styles.permissionFeatures}>
-              <View style={styles.permissionFeature}>
-                <Mic color="#4ecdc4" size={20} strokeWidth={2} />
-                <Text style={styles.permissionFeatureText}>Record your responses</Text>
-              </View>
-              <View style={styles.permissionFeature}>
-                <Brain color="#f093fb" size={20} strokeWidth={2} />
-                <Text style={styles.permissionFeatureText}>AI-powered feedback</Text>
-              </View>
-              <View style={styles.permissionFeature}>
-                <Shield color="#667eea" size={20} strokeWidth={2} />
-                <Text style={styles.permissionFeatureText}>Your privacy is protected</Text>
-              </View>
-            </View>
-            
-            <View style={styles.permissionModalActions}>
-              <TouchableOpacity 
-                style={styles.permissionCancelButton}
-                onPress={() => setShowPermissionModal(false)}
-              >
-                <Text style={styles.permissionCancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.permissionAllowButton}
-                onPress={handlePermissionRequest}
-              >
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  style={styles.permissionAllowButtonGradient}
-                >
-                  <Text style={styles.permissionAllowButtonText}>Allow Access</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </BlurView>
-      </View>
-    </Modal>
-  );
-
-  // Conversation Bubble Component
-  const ConversationBubble = ({ turn, index }: { turn: any; index: number }) => {
-    const isAI = turn.type === 'ai_question' || turn.type === 'ai_followup';
-    const bubbleOpacity = useSharedValue(0);
-    const bubbleTranslateY = useSharedValue(20);
-
-    React.useEffect(() => {
-      setTimeout(() => {
-        bubbleOpacity.value = withTiming(1, { duration: 500 });
-        bubbleTranslateY.value = withSpring(0, { damping: 15 });
-      }, index * 100);
-    }, []);
-
-    const bubbleStyle = useAnimatedStyle(() => {
-      return {
-        opacity: bubbleOpacity.value,
-        transform: [{ translateY: bubbleTranslateY.value }],
-      };
-    });
-
+  // Show interview type selection
+  if (!interviewStarted && !showFeedback) {
     return (
-      <Animated.View style={[
-        styles.conversationBubble,
-        isAI ? styles.aiBubble : styles.userBubble,
-        bubbleStyle
-      ]}>
-        {isAI && (
-          <View style={styles.aiAvatar}>
-            <Brain color="#667eea" size={16} strokeWidth={2} />
+      <View style={styles.selectionContainer}>
+        <View style={styles.header}>
+          <View style={styles.logoContainer}>
+            <LinearGradient
+              colors={['#667eea', '#764ba2', '#f093fb']}
+              style={styles.logoGradient}
+            >
+              <Brain color="white" size={32} strokeWidth={2} />
+            </LinearGradient>
           </View>
-        )}
-        <View style={[
-          styles.bubbleContent,
-          isAI ? styles.aiBubbleContent : styles.userBubbleContent
-        ]}>
-          <Text style={[
-            styles.bubbleText,
-            isAI ? styles.aiBubbleText : styles.userBubbleText
-          ]}>
-            {turn.content}
+          <Text style={styles.title}>AI Mock Interview</Text>
+          <Text style={styles.subtitle}>
+            Choose your interview type and practice with our AI interviewer
           </Text>
-          {turn.duration && (
-            <Text style={styles.bubbleTime}>
-              {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
-            </Text>
-          )}
         </View>
-      </Animated.View>
-    );
-  };
 
-  // Feedback Screen
-  if (feedback) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <LinearGradient
-          colors={['#0a0a0a', '#1a1a2e', '#16213e']}
-          style={styles.gradient}
-        >
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-            <View style={styles.feedbackContainer}>
-              {/* Header */}
-              <View style={styles.feedbackHeader}>
-                <View style={styles.feedbackIconContainer}>
+        <View style={styles.typeCards}>
+          {interviewTypeCards.map((card) => {
+            const IconComponent = card.icon;
+            return (
+              <TouchableOpacity
+                key={card.type}
+                style={styles.typeCard}
+                onPress={() => handleStartInterview(card.type)}
+              >
+                <BlurView intensity={20} style={styles.typeCardBlur}>
                   <LinearGradient
-                    colors={['#4ecdc4', '#44a08d']}
-                    style={styles.feedbackIconGradient}
+                    colors={[`${card.color}20`, `${card.color}10`]}
+                    style={styles.typeCardGradient}
                   >
-                    <CheckCircle color="white" size={32} strokeWidth={2} />
-                  </LinearGradient>
-                </View>
-                <Text style={styles.feedbackTitle}>Interview Complete!</Text>
-                <Text style={styles.feedbackSubtitle}>Here's your detailed feedback</Text>
-              </View>
-
-              {/* Overall Score */}
-              <View style={styles.scoreCard}>
-                <BlurView intensity={20} style={styles.scoreCardBlur}>
-                  <LinearGradient
-                    colors={['rgba(102, 126, 234, 0.1)', 'rgba(118, 75, 162, 0.1)']}
-                    style={styles.scoreCardGradient}
-                  >
-                    <View style={styles.scoreCardContent}>
-                      <Text style={styles.scoreLabel}>Overall Score</Text>
-                      <Text style={styles.scoreValue}>{feedback.overallScore}</Text>
-                      <Text style={styles.scoreOutOf}>out of 100</Text>
-                      
-                      <View style={styles.scoreBar}>
-                        <View 
-                          style={[
-                            styles.scoreBarFill, 
-                            { width: `${feedback.overallScore}%` }
-                          ]} 
-                        />
+                    <View style={styles.typeCardContent}>
+                      <View style={[styles.typeCardIcon, { backgroundColor: `${card.color}20` }]}>
+                        <IconComponent color={card.color} size={24} strokeWidth={2} />
                       </View>
+                      <Text style={styles.typeCardTitle}>{card.title}</Text>
+                      <Text style={styles.typeCardDescription}>{card.description}</Text>
                     </View>
                   </LinearGradient>
                 </BlurView>
-              </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-              {/* Strengths */}
-              <View style={styles.feedbackSection}>
-                <View style={styles.sectionTitleContainer}>
-                  <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} />
-                  <Text style={styles.sectionTitleText}>Strengths</Text>
-                </View>
-                {feedback.strengths.map((strength, index) => (
-                  <View key={index} style={styles.feedbackItem}>
-                    <Text style={styles.feedbackItemText}>{strength}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Areas for Improvement */}
-              <View style={styles.feedbackSection}>
-                <View style={styles.sectionTitleContainer}>
-                  <Target color="#f093fb" size={20} strokeWidth={2} />
-                  <Text style={styles.sectionTitleText}>Areas for Improvement</Text>
-                </View>
-                {feedback.improvements.map((improvement, index) => (
-                  <View key={index} style={styles.feedbackItem}>
-                    <Text style={styles.feedbackItemText}>{improvement}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Detailed Question Feedback */}
-              <View style={styles.feedbackSection}>
-                <View style={styles.sectionTitleContainer}>
-                  <MessageSquare color="#667eea" size={20} strokeWidth={2} />
-                  <Text style={styles.sectionTitleText}>Question-by-Question Feedback</Text>
-                </View>
-                {feedback.detailedFeedback.map((item, index) => (
-                  <View key={index} style={styles.questionFeedbackCard}>
-                    <BlurView intensity={20} style={styles.questionFeedbackBlur}>
-                      <View style={styles.questionFeedbackContent}>
-                        <View style={styles.questionFeedbackHeader}>
-                          <Text style={styles.questionNumber}>Question {index + 1}</Text>
-                          <Text style={styles.questionScore}>{item.score}/100</Text>
-                        </View>
-                        <Text style={styles.questionFeedbackText}>{item.feedback}</Text>
-                        <View style={styles.suggestions}>
-                          {item.suggestions.map((suggestion, suggestionIndex) => (
-                            <Text key={suggestionIndex} style={styles.suggestionText}>
-                              • {suggestion}
-                            </Text>
-                          ))}
-                        </View>
-                      </View>
-                    </BlurView>
-                  </View>
-                ))}
-              </View>
-
-              {/* Recommendations */}
-              <View style={styles.feedbackSection}>
-                <View style={styles.sectionTitleContainer}>
-                  <BookOpen color="#feca57" size={20} strokeWidth={2} />
-                  <Text style={styles.sectionTitleText}>Recommendations</Text>
-                </View>
-                {feedback.recommendations.map((recommendation, index) => (
-                  <View key={index} style={styles.recommendationItem}>
-                    <Text style={styles.recommendationText}>{recommendation}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Action Buttons */}
-              <View style={styles.feedbackActions}>
-                <TouchableOpacity style={styles.primaryActionButton} onPress={resetInterview}>
-                  <LinearGradient
-                    colors={['#667eea', '#764ba2']}
-                    style={styles.primaryActionButtonGradient}
-                  >
-                    <RotateCcw color="white" size={20} strokeWidth={2} />
-                    <Text style={styles.primaryActionButtonText}>Start New Interview</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.secondaryActionButton}>
-                  <Text style={styles.secondaryActionButtonText}>Share Results</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-        </LinearGradient>
-      </SafeAreaView>
+        <View style={styles.features}>
+          <View style={styles.feature}>
+            <Zap color="#f093fb" size={20} strokeWidth={2} />
+            <Text style={styles.featureText}>AI-Powered Questions</Text>
+          </View>
+          <View style={styles.feature}>
+            <Brain color="#667eea" size={20} strokeWidth={2} />
+            <Text style={styles.featureText}>Real-time Feedback</Text>
+          </View>
+          <View style={styles.feature}>
+            <Award color="#4ecdc4" size={20} strokeWidth={2} />
+            <Text style={styles.featureText}>Performance Analysis</Text>
+          </View>
+        </View>
+      </View>
     );
   }
 
-  // Interview Session Screen
-  if (interviewStarted && currentQuestion) {
-    const progress = totalQuestions > 0 ? (currentQuestionIndex + 1) / totalQuestions : 0;
-    const hasResponse = responses.some(r => r.questionId === currentQuestion?.id);
-    const stateDisplay = getConversationStateDisplay();
-    const canRecord = conversationState === 'waiting_for_response' || conversationState === 'user_speaking';
-
-    const insets = useSafeAreaInsets();
+  // Show feedback screen
+  if (showFeedback && feedback) {
     return (
-      <SafeAreaView style={styles.container}>
-        <LinearGradient
-          colors={['#0a0a0a', '#1a1a2e', '#16213e']}
-          style={styles.gradient}
+      <View style={styles.feedbackContainer}>
+        <ScrollView 
+          style={styles.feedbackScroll}
+          contentContainerStyle={styles.feedbackContent}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={[styles.sessionContainer, { paddingBottom: 30 + insets.bottom }]}>
-            {/* Session Header */}
-            <View style={styles.sessionHeader}>
-              <TouchableOpacity 
-                style={styles.exitButton}
-                onPress={resetInterview}
-              >
-                <Text style={styles.exitButtonText}>End Session</Text>
-              </TouchableOpacity>
-              
-              <View style={styles.progressContainer}>
-                <Text style={styles.progressText}>
-                  {currentQuestionIndex + 1} of {totalQuestions}
-                </Text>
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressBarFill, { width: `${progress * 100}%` }]} />
-                </View>
-              </View>
-              
-              <View style={styles.timerContainer}>
-                <Timer color="#667eea" size={16} strokeWidth={2} />
-                <Text style={styles.timerText}>{formatTime(interviewTimeRemaining)}</Text>
-              </View>
+          <View style={styles.feedbackHeader}>
+            <View style={styles.scoreContainer}>
+              <Text style={styles.scoreValue}>{feedback.overallScore}</Text>
+              <Text style={styles.scoreLabel}>Overall Score</Text>
             </View>
-
-            {/* Conversation State Indicator */}
-            <View style={styles.conversationStateContainer}>
-              <View style={[styles.conversationStateIndicator, { backgroundColor: `${stateDisplay.color}20` }]}>
-                {conversationState === 'processing_response' || conversationState === 'generating_followup' ? (
-                  <Loader color={stateDisplay.color} size={16} strokeWidth={2} />
-                ) : (
-                  <Brain color={stateDisplay.color} size={16} strokeWidth={2} />
-                )}
-                <Text style={[styles.conversationStateText, { color: stateDisplay.color }]}>
-                  {stateDisplay.text}
-                </Text>
-              </View>
-            </View>
-
-            {/* Conversation History */}
-            <ScrollView 
-              style={styles.conversationContainer}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.conversationContent}
-            >
-              {conversationHistory.map((turn, index) => (
-                <ConversationBubble key={turn.id} turn={turn} index={index} />
-              ))}
-              
-              {/* Live Transcript */}
-              {currentTranscript && (
-                <View style={styles.liveTranscriptContainer}>
-                  <Text style={styles.liveTranscriptLabel}>You're saying:</Text>
-                  <Text style={styles.liveTranscriptText}>{currentTranscript}</Text>
-                </View>
-              )}
-            </ScrollView>
-
-            {/* Recording Controls */}
-            <View style={styles.recordingControls}>
-              {/* Manual Input Button */}
-              <TouchableOpacity 
-                style={[styles.manualInputButton, !canRecord && styles.disabledButton]}
-                onPress={() => setShowManualInput(true)}
-                disabled={!canRecord}
-              >
-                <MessageCircle color={canRecord ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
-              </TouchableOpacity>
-              
-              {/* Main Recording Button */}
-              <View style={styles.recordingButtonContainer}>
-                <TouchableOpacity 
-                  style={[
-                    styles.recordButton,
-                    !canRecord && styles.disabledButton
-                  ]}
-                  onPress={handleRecordToggle}
-                  disabled={!canRecord}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={isRecording ? ['#ff6b6b', '#ff8e8e'] : ['#667eea', '#764ba2']}
-                    style={[
-                      styles.recordButtonGradient,
-                      !canRecord && styles.recordButtonDisabled
-                    ]}
-                  >
-                    <Animated.View style={pulseStyle}>
-                      {isRecording ? (
-                        <Square color="white" size={32} strokeWidth={2} />
-                      ) : (
-                        <Mic color="white" size={32} strokeWidth={2} />
-                      )}
-                    </Animated.View>
-                  </LinearGradient>
-                </TouchableOpacity>
-                
-                <Text style={styles.recordButtonLabel}>
-                  {isRecording ? 'Tap to Stop' : 'Tap to Speak'}
-                </Text>
-              </View>
-              
-              {/* Replay Question Button */}
-              <TouchableOpacity 
-                style={[styles.replayButton, !canRecord && styles.disabledButton]}
-                onPress={playQuestion}
-                disabled={!canRecord || isPlaying}
-              >
-                <Play color={canRecord && !isPlaying ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Recording Status */}
-            {isRecording && (
-              <View style={styles.recordingStatus}>
-                <View style={styles.recordingIndicator}>
-                  <Animated.View style={[styles.recordingDot, pulseStyle]} />
-                  <Text style={styles.recordingText}>
-                    {Platform.OS === 'web' ? 'Listening...' : 'Recording...'}
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* Response Status */}
-            {hasResponse && (
-              <View style={styles.responseStatus}>
-                <CheckCircle color="#4ecdc4" size={16} strokeWidth={2} />
-                <Text style={styles.responseStatusText}>Response recorded</Text>
-              </View>
-            )}
+            <Text style={styles.feedbackTitle}>Interview Complete!</Text>
+            <Text style={styles.feedbackSubtitle}>
+              Here's your detailed performance analysis
+            </Text>
           </View>
 
-          {/* Manual Input Modal */}
-          <Modal
-            visible={showManualInput}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setShowManualInput(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <BlurView intensity={20} style={styles.modalBlur}>
-                <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>Type Your Response</Text>
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="Enter your response here..."
-                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                    value={manualResponse}
-                    onChangeText={setManualResponse}
-                    multiline
-                    numberOfLines={6}
-                    textAlignVertical="top"
-                  />
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity 
-                      style={styles.modalCancelButton}
-                      onPress={() => setShowManualInput(false)}
-                    >
-                      <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.modalSubmitButton}
-                      onPress={handleManualSubmit}
-                    >
-                      <LinearGradient
-                        colors={['#667eea', '#764ba2']}
-                        style={styles.modalSubmitButtonGradient}
-                      >
-                        <Send color="white" size={16} strokeWidth={2} />
-                        <Text style={styles.modalSubmitButtonText}>Submit</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </BlurView>
+          {/* Strengths */}
+          <View style={styles.feedbackSection}>
+            <View style={styles.sectionHeader}>
+              <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Strengths</Text>
             </View>
-          </Modal>
+            {feedback.strengths.map((strength, index) => (
+              <View key={index} style={styles.feedbackItem}>
+                <Text style={styles.feedbackItemText}>{strength}</Text>
+              </View>
+            ))}
+          </View>
 
-          {/* Permission Modal */}
-          <PermissionModal />
-        </LinearGradient>
-      </SafeAreaView>
+          {/* Areas for Improvement */}
+          <View style={styles.feedbackSection}>
+            <View style={styles.sectionHeader}>
+              <TrendingUp color="#f093fb" size={20} strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Areas for Improvement</Text>
+            </View>
+            {feedback.improvements.map((improvement, index) => (
+              <View key={index} style={styles.feedbackItem}>
+                <Text style={styles.feedbackItemText}>{improvement}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Recommendations */}
+          <View style={styles.feedbackSection}>
+            <View style={styles.sectionHeader}>
+              <Target color="#667eea" size={20} strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Recommendations</Text>
+            </View>
+            {feedback.recommendations.map((recommendation, index) => (
+              <View key={index} style={styles.feedbackItem}>
+                <Text style={styles.feedbackItemText}>{recommendation}</Text>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.restartButton} onPress={handleResetInterview}>
+            <LinearGradient
+              colors={['#667eea', '#764ba2']}
+              style={styles.restartButtonGradient}
+            >
+              <RotateCcw color="white" size={20} strokeWidth={2} />
+              <Text style={styles.restartButtonText}>Start New Interview</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
     );
   }
 
-  // Main Interview Selection Screen
-  const InterviewTypeCard = ({ type, onPress }: { type: any; onPress: (type: any) => void }) => {
-    const scale = useSharedValue(1);
+  // Show interview screen
+  return (
+    <View style={styles.interviewContainer}>
+      {/* Header with timer and progress */}
+      <View style={styles.interviewHeader}>
+        <View style={styles.progressContainer}>
+          <Text style={styles.progressText}>
+            Question {currentQuestionIndex + 1} of {totalQuestions}
+          </Text>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill, 
+                { width: `${((currentQuestionIndex + 1) / totalQuestions) * 100}%` }
+              ]} 
+            />
+          </View>
+        </View>
+        
+        <InterviewTimer timeRemaining={interviewTimeRemaining} />
+      </View>
 
-    const cardTap = Gesture.Tap()
-      .onStart(() => {
-        scale.value = withSpring(0.95);
-      })
-      .onEnd(() => {
-        scale.value = withSpring(1);
-        runOnJS(onPress)(type);
-      });
-
-    const animatedStyle = useAnimatedStyle(() => {
-      return {
-        transform: [{ scale: scale.value }],
-      };
-    });
-
-    return (
-      <GestureDetector gesture={cardTap}>
-        <Animated.View style={[styles.typeCard, animatedStyle]}>
-          <BlurView intensity={20} style={styles.typeCardBlur}>
+      {/* Current Question */}
+      {currentQuestion && (
+        <View style={styles.questionContainer}>
+          <BlurView intensity={20} style={styles.questionBlur}>
             <LinearGradient
-              colors={[`${type.color}20`, `${type.color}10`]}
-              style={styles.typeCardGradient}
+              colors={['rgba(102, 126, 234, 0.1)', 'rgba(118, 75, 162, 0.1)']}
+              style={styles.questionGradient}
             >
-              <View style={styles.typeCardContent}>
-                <View style={styles.typeCardHeader}>
-                  <View style={[styles.typeIcon, { backgroundColor: `${type.color}20` }]}>
-                    <type.icon color={type.color} size={24} strokeWidth={2} />
-                  </View>
-                  <View style={styles.typeCardMeta}>
-                    <Text style={styles.typeDifficulty}>{type.difficulty}</Text>
-                    <Text style={styles.typeDuration}>{type.duration}</Text>
-                  </View>
+              <View style={styles.questionContent}>
+                <View style={styles.questionHeader}>
+                  <Bot color="#667eea" size={24} strokeWidth={2} />
+                  <Text style={styles.questionLabel}>Current Question</Text>
                 </View>
+                <Text style={styles.questionText}>{currentQuestion.question}</Text>
                 
-                <Text style={styles.typeTitle}>{type.title}</Text>
-                <Text style={styles.typeDescription}>{type.description}</Text>
-                
-                <View style={styles.typeStats}>
-                  <View style={styles.typeStat}>
-                    <Clock color="rgba(255, 255, 255, 0.6)" size={16} />
-                    <Text style={styles.typeStatText}>{type.duration}</Text>
-                  </View>
-                  <View style={styles.typeStat}>
-                    <Brain color="rgba(255, 255, 255, 0.6)" size={16} />
-                    <Text style={styles.typeStatText}>{type.questions} questions</Text>
-                  </View>
+                <View style={styles.questionActions}>
+                  <TouchableOpacity 
+                    style={styles.playButton}
+                    onPress={isPlaying ? stopPlaying : playQuestion}
+                  >
+                    {isPlaying ? (
+                      <Pause color="#667eea" size={20} strokeWidth={2} />
+                    ) : (
+                      <Play color="#667eea" size={20} strokeWidth={2} />
+                    )}
+                    <Text style={styles.playButtonText}>
+                      {isPlaying ? 'Stop' : 'Play'} Question
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </LinearGradient>
           </BlurView>
-        </Animated.View>
-      </GestureDetector>
-    );
-  };
+        </View>
+      )}
 
-  const SessionCard = ({ session }: { session: any }) => {
-    const getScoreColor = (score: number) => {
-      if (score >= 90) return '#4ecdc4';
-      if (score >= 80) return '#667eea';
-      if (score >= 70) return '#f093fb';
-      return '#ff6b6b';
-    };
+      {/* Recording Controls */}
+      <View style={styles.controlsContainer}>
+        <View style={styles.recordingSection}>
+          <Text style={styles.recordingLabel}>
+            {conversationState === 'ai_speaking' ? 'AI is speaking...' :
+             conversationState === 'user_speaking' ? 'Recording your response...' :
+             conversationState === 'processing_response' ? 'Processing...' :
+             conversationState === 'generating_followup' ? 'Generating follow-up...' :
+             'Ready for your response'}
+          </Text>
+          
+          {currentTranscript && (
+            <View style={styles.transcriptContainer}>
+              <Text style={styles.transcriptText}>{currentTranscript}</Text>
+            </View>
+          )}
 
-    return (
-      <View style={styles.sessionCard}>
-        <BlurView intensity={20} style={styles.sessionCardBlur}>
-          <LinearGradient
-            colors={['rgba(102, 126, 234, 0.1)', 'rgba(118, 75, 162, 0.1)']}
-            style={styles.sessionCardGradient}
-          >
-            <View style={styles.sessionCardContent}>
-              <Image source={{ uri: session.avatar }} style={styles.sessionAvatar} />
-              <View style={styles.sessionInfo}>
-                <Text style={styles.sessionType}>{session.type}</Text>
-                <Text style={styles.sessionFeedback}>{session.feedback}</Text>
-                <Text style={styles.sessionDate}>{session.date}</Text>
-              </View>
-              <View style={styles.sessionScore}>
-                <Text style={[styles.sessionScoreText, { color: getScoreColor(session.score) }]}>
-                  {session.score}
+          <View style={styles.recordingControls}>
+            <TouchableOpacity
+              style={[
+                styles.recordButton,
+                isRecording && styles.recordButtonActive,
+                (conversationState !== 'waiting_for_response' && !isRecording) && styles.recordButtonDisabled
+              ]}
+              onPress={isRecording ? stopRecording : startRecording}
+              disabled={conversationState !== 'waiting_for_response' && !isRecording}
+            >
+              <LinearGradient
+                colors={isRecording ? ['#ff6b6b', '#ee5a52'] : ['#4ecdc4', '#44a08d']}
+                style={styles.recordButtonGradient}
+              >
+                {isRecording ? (
+                  <MicOff color="white" size={24} strokeWidth={2} />
+                ) : (
+                  <Mic color="white" size={24} strokeWidth={2} />
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.manualInputButton}
+              onPress={() => setShowManualInput(!showManualInput)}
+            >
+              <Text style={styles.manualInputButtonText}>Type Response</Text>
+            </TouchableOpacity>
+          </View>
+
+          {showManualInput && (
+            <View style={styles.manualInputContainer}>
+              <Text style={styles.manualInputLabel}>Type your response:</Text>
+              <View style={styles.manualInputWrapper}>
+                <Text 
+                  style={styles.manualInput}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      const response = prompt('Enter your response:');
+                      if (response) {
+                        setManualResponse(response);
+                      }
+                    } else {
+                      Alert.prompt(
+                        'Your Response',
+                        'Enter your response:',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { 
+                            text: 'Submit', 
+                            onPress: (text) => {
+                              if (text) {
+                                setManualResponse(text);
+                              }
+                            }
+                          }
+                        ],
+                        'plain-text',
+                        manualResponse
+                      );
+                    }
+                  }}
+                >
+                  {manualResponse || 'Tap to enter your response...'}
                 </Text>
-                <Text style={styles.sessionScoreLabel}>Score</Text>
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={handleSubmitManualResponse}
+                  disabled={!manualResponse.trim()}
+                >
+                  <Send color={manualResponse.trim() ? "#667eea" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
+                </TouchableOpacity>
               </View>
             </View>
-          </LinearGradient>
-        </BlurView>
+          )}
+        </View>
+
+        <View style={styles.navigationControls}>
+          <TouchableOpacity
+            style={[styles.navButton, currentQuestionIndex === 0 && styles.navButtonDisabled]}
+            onPress={previousQuestion}
+            disabled={currentQuestionIndex === 0}
+          >
+            <Text style={styles.navButtonText}>Previous</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.finishButton}
+            onPress={handleFinishInterview}
+          >
+            <Text style={styles.finishButtonText}>Finish Interview</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.navButton, currentQuestionIndex >= totalQuestions - 1 && styles.navButtonDisabled]}
+            onPress={nextQuestion}
+            disabled={currentQuestionIndex >= totalQuestions - 1}
+          >
+            <Text style={styles.navButtonText}>Next</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    );
-  };
 
+      {/* Conversation History */}
+      <View style={styles.conversationContainer}>
+        <View style={styles.conversationHeader}>
+          <MessageCircle color="#667eea" size={20} strokeWidth={2} />
+          <Text style={styles.conversationTitle}>Conversation</Text>
+        </View>
+        
+        <ConversationList conversationHistory={conversationHistory} />
+      </View>
+    </View>
+  );
+}
+
+export default function InterviewScreen() {
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#0a0a0a', '#1a1a2e', '#16213e']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradient}
-      >
-        <ScrollView 
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+    <AuthGuard>
+      <SafeAreaView style={styles.container}>
+        <LinearGradient
+          colors={['#0a0a0a', '#1a1a2e', '#16213e']}
+          style={styles.gradient}
         >
-          {/* Header */}
-          <Animated.View style={[styles.header, headerStyle]}>
-            <Text style={styles.headerTitle}>AI Mock Interview</Text>
-            <Text style={styles.headerSubtitle}>
-              Practice with AI-powered interviewers and get instant feedback
-            </Text>
-          </Animated.View>
-
-          {/* Interview Types */}
-          <Animated.View style={[styles.typesSection, cardsStyle]}>
-            <Text style={styles.sectionTitle}>Choose Interview Type</Text>
-            {interviewTypes.map((type) => (
-              <InterviewTypeCard
-                key={type.id}
-                type={type}
-                onPress={handleStartInterview}
-              />
-            ))}
-          </Animated.View>
-
-          {/* Recent Sessions */}
-          <Animated.View style={[styles.sessionsSection, cardsStyle]}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Sessions</Text>
-              <TouchableOpacity>
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            </View>
-            
-            {recentSessions.map((session) => (
-              <SessionCard key={session.id} session={session} />
-            ))}
-          </Animated.View>
-
-          {/* Performance Stats */}
-          <Animated.View style={[styles.statsSection, cardsStyle]}>
-            <Text style={styles.sectionTitle}>Your Progress</Text>
-            <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
-                <TrendingUp color="#4ecdc4" size={24} />
-                <Text style={styles.statValue}>89</Text>
-                <Text style={styles.statLabel}>Avg Score</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Clock color="#667eea" size={24} />
-                <Text style={styles.statValue}>24</Text>
-                <Text style={styles.statLabel}>Hours Practiced</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Zap color="#f093fb" size={24} />
-                <Text style={styles.statValue}>156</Text>
-                <Text style={styles.statLabel}>Questions Answered</Text>
-              </View>
-            </View>
-          </Animated.View>
-        </ScrollView>
-      </LinearGradient>
-    </SafeAreaView>
+          <InterviewContent />
+        </LinearGradient>
+      </SafeAreaView>
+    </AuthGuard>
   );
 }
 
@@ -889,54 +574,51 @@ const styles = StyleSheet.create({
   gradient: {
     flex: 1,
   },
-  scrollView: {
+  
+  // Selection Screen Styles
+  selectionContainer: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 120,
+    paddingHorizontal: 24,
+    paddingTop: 40,
   },
   header: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 32,
     alignItems: 'center',
+    marginBottom: 40,
   },
-  headerTitle: {
+  logoContainer: {
+    marginBottom: 24,
+  },
+  logoGradient: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  title: {
     fontSize: 28,
     fontFamily: 'SpaceGrotesk-Bold',
     color: 'white',
     marginBottom: 8,
+    textAlign: 'center',
   },
-  headerSubtitle: {
+  subtitle: {
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
+    fontFamily: 'Inter-Medium',
     color: 'rgba(255, 255, 255, 0.7)',
     textAlign: 'center',
     lineHeight: 24,
   },
-  typesSection: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginBottom: 20,
-  },
-  sectionTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  sectionTitleText: {
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginLeft: 8,
+  typeCards: {
+    flex: 1,
+    gap: 20,
   },
   typeCard: {
-    marginBottom: 16,
     borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -956,208 +638,78 @@ const styles = StyleSheet.create({
   },
   typeCardContent: {
     padding: 24,
+    alignItems: 'center',
   },
-  typeCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  typeCardIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
-  typeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  typeCardMeta: {
-    alignItems: 'flex-end',
-  },
-  typeDifficulty: {
-    fontSize: 12,
-    fontFamily: 'Inter-SemiBold',
-    color: '#667eea',
-    marginBottom: 4,
-  },
-  typeDuration: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  typeTitle: {
-    fontSize: 18,
+  typeCardTitle: {
+    fontSize: 20,
     fontFamily: 'SpaceGrotesk-SemiBold',
     color: 'white',
     marginBottom: 8,
+    textAlign: 'center',
   },
-  typeDescription: {
+  typeCardDescription: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 16,
   },
-  typeStats: {
+  features: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
+    paddingVertical: 20,
+    marginTop: 20,
   },
-  typeStat: {
-    flexDirection: 'row',
+  feature: {
     alignItems: 'center',
+    flex: 1,
   },
-  typeStatText: {
+  featureText: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginLeft: 6,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    marginTop: 8,
   },
-  sessionsSection: {
+
+  // Interview Screen Styles
+  interviewContainer: {
+    flex: 1,
     paddingHorizontal: 24,
-    marginBottom: 32,
+    paddingTop: 20,
   },
-  sectionHeader: {
+  interviewHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
-  },
-  viewAllText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#667eea',
-  },
-  sessionCard: {
-    marginBottom: 16,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  sessionCardBlur: {
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  sessionCardGradient: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  sessionCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-  },
-  sessionAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 16,
-  },
-  sessionInfo: {
-    flex: 1,
-  },
-  sessionType: {
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginBottom: 4,
-  },
-  sessionFeedback: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 4,
-  },
-  sessionDate: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  sessionScore: {
-    alignItems: 'center',
-  },
-  sessionScoreText: {
-    fontSize: 24,
-    fontFamily: 'SpaceGrotesk-Bold',
-    marginBottom: 4,
-  },
-  sessionScoreLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  statsSection: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 16,
-    padding: 20,
-    marginHorizontal: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  statValue: {
-    fontSize: 24,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: 'white',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.6)',
-    textAlign: 'center',
-  },
-  // Session Screen Styles
-  sessionContainer: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
-  sessionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 20,
-    paddingBottom: 20,
-  },
-  exitButton: {
-    backgroundColor: 'rgba(255, 107, 107, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 107, 0.3)',
-  },
-  exitButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#ff6b6b',
+    paddingHorizontal: 4,
   },
   progressContainer: {
-    alignItems: 'center',
     flex: 1,
+    marginRight: 16,
   },
   progressText: {
     fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: 'white',
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.8)',
     marginBottom: 8,
   },
   progressBar: {
-    width: 120,
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 2,
     overflow: 'hidden',
   },
-  progressBarFill: {
+  progressFill: {
     height: '100%',
     backgroundColor: '#667eea',
     borderRadius: 2,
@@ -1165,400 +717,347 @@ const styles = StyleSheet.create({
   timerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   timerText: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Inter-SemiBold',
-    color: '#667eea',
+    color: '#4ecdc4',
     marginLeft: 6,
   },
-  conversationStateContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
+  timerTextLow: {
+    color: '#ff6b6b',
   },
-  conversationStateIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+
+  // Question Styles
+  questionContainer: {
+    marginBottom: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  questionBlur: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  questionGradient: {
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  conversationStateText: {
-    fontSize: 14,
+  questionContent: {
+    padding: 20,
+  },
+  questionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  questionLabel: {
+    fontSize: 16,
     fontFamily: 'Inter-SemiBold',
+    color: 'white',
     marginLeft: 8,
   },
-  conversationContainer: {
-    flex: 1,
-    marginBottom: 20,
-  },
-  conversationContent: {
-    paddingBottom: 20,
-  },
-  conversationBubble: {
-    flexDirection: 'row',
+  questionText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.9)',
+    lineHeight: 24,
     marginBottom: 16,
-    alignItems: 'flex-start',
   },
-  aiBubble: {
-    justifyContent: 'flex-start',
-  },
-  userBubble: {
-    justifyContent: 'flex-end',
-    flexDirection: 'row-reverse',
-  },
-  aiAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+  questionActions: {
+    flexDirection: 'row',
     justifyContent: 'center',
+  },
+  playButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 12,
-  },
-  bubbleContent: {
-    maxWidth: '75%',
-    borderRadius: 16,
-    padding: 16,
-  },
-  aiBubbleContent: {
-    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(102, 126, 234, 0.2)',
-  },
-  userBubbleContent: {
-    backgroundColor: 'rgba(78, 205, 196, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(78, 205, 196, 0.2)',
-    marginLeft: 12,
-  },
-  bubbleText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    lineHeight: 20,
-  },
-  aiBubbleText: {
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  userBubbleText: {
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  bubbleTime: {
-    fontSize: 11,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginTop: 8,
-  },
-  liveTranscriptContainer: {
-    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(102, 126, 234, 0.3)',
+  },
+  playButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#667eea',
+    marginLeft: 6,
+  },
+
+  // Controls Styles
+  controlsContainer: {
+    marginBottom: 20,
+  },
+  recordingSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  recordingLabel: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  transcriptContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    minHeight: 60,
+    justifyContent: 'center',
   },
-  liveTranscriptLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-SemiBold',
-    color: '#667eea',
-    marginBottom: 8,
-  },
-  liveTranscriptText: {
+  transcriptText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
     lineHeight: 20,
   },
   recordingControls: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-  },
-  manualInputButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  replayButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  recordingButtonContainer: {
-    alignItems: 'center',
+    gap: 16,
   },
   recordButton: {
-    borderRadius: 50,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.3,
-    shadowRadius: 30,
-    elevation: 20,
-    marginBottom: 8,
-  },
-  recordButtonGradient: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  recordButtonDisabled: {
-    opacity: 0.5,
-  },
-  recordButtonLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-  },
-  recordingStatus: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  recordingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 107, 107, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 107, 0.3)',
-  },
-  recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ff6b6b',
-    marginRight: 8,
-  },
-  recordingText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#ff6b6b',
-  },
-  responseStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(78, 205, 196, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(78, 205, 196, 0.3)',
-    marginBottom: 20,
-  },
-  responseStatusText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#4ecdc4',
-    marginLeft: 8,
-  },
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  modalBlur: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    width: '100%',
-    maxWidth: 400,
-  },
-  modalContent: {
-    backgroundColor: 'rgba(26, 26, 46, 0.95)',
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: 'white',
-    minHeight: 120,
-    marginBottom: 20,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  modalCancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    marginRight: 12,
-  },
-  modalCancelButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-  },
-  modalSubmitButton: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  modalSubmitButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  modalSubmitButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: 'white',
-    marginLeft: 8,
-  },
-  // Permission Modal Styles
-  permissionModalBlur: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    width: '100%',
-    maxWidth: 400,
-  },
-  permissionModalContent: {
-    backgroundColor: 'rgba(26, 26, 46, 0.95)',
-    padding: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-  },
-  permissionIconContainer: {
-    marginBottom: 24,
-  },
-  permissionModalTitle: {
-    fontSize: 22,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: 'white',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  permissionModalText: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  permissionFeatures: {
-    width: '100%',
-    marginBottom: 32,
-  },
-  permissionFeature: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  permissionFeatureText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginLeft: 12,
-  },
-  permissionModalActions: {
-    flexDirection: 'row',
-    width: '100%',
-  },
-  permissionCancelButton: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    marginRight: 12,
-  },
-  permissionCancelButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-  },
-  permissionAllowButton: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  permissionAllowButtonGradient: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  permissionAllowButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: 'white',
-  },
-  // Feedback Screen Styles
-  feedbackContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 40,
-  },
-  feedbackHeader: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  feedbackIconContainer: {
-    marginBottom: 24,
-  },
-  feedbackIconGradient: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
     shadowColor: '#4ecdc4',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
+  },
+  recordButtonActive: {
+    shadowColor: '#ff6b6b',
+  },
+  recordButtonDisabled: {
+    opacity: 0.5,
+    shadowOpacity: 0.1,
+  },
+  recordButtonGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  manualInputButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  manualInputButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  manualInputContainer: {
+    marginTop: 20,
+    width: '100%',
+  },
+  manualInputLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 8,
+  },
+  manualInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  manualInput: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: 'white',
+    padding: 16,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  submitButton: {
+    padding: 16,
+  },
+  navigationControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  navButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  navButtonDisabled: {
+    opacity: 0.5,
+  },
+  navButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  finishButton: {
+    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+  },
+  finishButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#ff6b6b',
+  },
+
+  // Conversation Styles
+  conversationContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+  },
+  conversationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  conversationTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
+    marginLeft: 8,
+  },
+  conversationList: {
+    flex: 1,
+  },
+  conversationContent: {
+    padding: 16,
+    paddingBottom: 100, // Extra padding for tab bar
+  },
+  conversationItem: {
+    marginBottom: 16,
+  },
+  messageContainer: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+  },
+  aiMessage: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    borderColor: 'rgba(102, 126, 234, 0.2)',
+    marginRight: 40,
+  },
+  userMessage: {
+    backgroundColor: 'rgba(78, 205, 196, 0.1)',
+    borderColor: 'rgba(78, 205, 196, 0.2)',
+    marginLeft: 40,
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  avatarContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  aiAvatar: {
+    backgroundColor: '#667eea',
+  },
+  userAvatar: {
+    backgroundColor: '#4ecdc4',
+  },
+  messageSender: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: 'rgba(255, 255, 255, 0.8)',
+    flex: 1,
+  },
+  durationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  durationText: {
+    fontSize: 10,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginLeft: 2,
+  },
+  messageText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.9)',
+    lineHeight: 20,
+  },
+
+  // Feedback Screen Styles
+  feedbackContainer: {
+    flex: 1,
+  },
+  feedbackScroll: {
+    flex: 1,
+  },
+  feedbackContent: {
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 100,
+  },
+  feedbackHeader: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  scoreContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  scoreValue: {
+    fontSize: 48,
+    fontFamily: 'SpaceGrotesk-Bold',
+    color: '#4ecdc4',
+  },
+  scoreLabel: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 4,
   },
   feedbackTitle: {
     fontSize: 28,
@@ -1569,60 +1068,24 @@ const styles = StyleSheet.create({
   },
   feedbackSubtitle: {
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-  },
-  scoreCard: {
-    marginBottom: 32,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  scoreCardBlur: {
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  scoreCardGradient: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  scoreCardContent: {
-    padding: 32,
-    alignItems: 'center',
-  },
-  scoreLabel: {
-    fontSize: 16,
     fontFamily: 'Inter-Medium',
     color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 8,
-  },
-  scoreValue: {
-    fontSize: 48,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: 'white',
-    marginBottom: 4,
-  },
-  scoreOutOf: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginBottom: 20,
-  },
-  scoreBar: {
-    width: '100%',
-    height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  scoreBarFill: {
-    height: '100%',
-    backgroundColor: '#4ecdc4',
-    borderRadius: 4,
+    textAlign: 'center',
+    lineHeight: 24,
   },
   feedbackSection: {
     marginBottom: 32,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontFamily: 'SpaceGrotesk-SemiBold',
+    color: 'white',
+    marginLeft: 8,
   },
   feedbackItem: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -1638,106 +1101,27 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
     lineHeight: 20,
   },
-  questionFeedbackCard: {
-    marginBottom: 16,
+  restartButton: {
     borderRadius: 16,
     overflow: 'hidden',
-  },
-  questionFeedbackBlur: {
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  questionFeedbackContent: {
-    padding: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  questionFeedbackHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  questionNumber: {
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-  },
-  questionScore: {
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#4ecdc4',
-  },
-  questionFeedbackText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  suggestions: {
-    paddingLeft: 16,
-  },
-  suggestionText: {
-    fontSize: 13,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.7)',
-    lineHeight: 18,
-    marginBottom: 4,
-  },
-  recommendationItem: {
-    backgroundColor: 'rgba(254, 202, 87, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(254, 202, 87, 0.2)',
-  },
-  recommendationText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 20,
-  },
-  feedbackActions: {
-    marginTop: 20,
-  },
-  primaryActionButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 16,
     shadowColor: '#667eea',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
+    marginTop: 20,
   },
-  primaryActionButtonGradient: {
+  restartButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
   },
-  primaryActionButtonText: {
+  restartButtonText: {
     fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: 'white',
     marginLeft: 8,
-  },
-  secondaryActionButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  secondaryActionButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
   },
 });
