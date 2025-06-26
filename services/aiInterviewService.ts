@@ -31,10 +31,19 @@ export interface InterviewFeedback {
   recommendations: string[];
 }
 
+export interface ConversationTurn {
+  id: string;
+  type: 'ai_question' | 'user_response' | 'ai_followup';
+  content: string;
+  timestamp: string;
+  duration?: number;
+}
+
 class AIInterviewService {
   private static instance: AIInterviewService;
   private elevenLabsApiKey: string | null = null;
   private openAIApiKey: string | null = null;
+  private conversationHistory: ConversationTurn[] = [];
 
   static getInstance(): AIInterviewService {
     if (!AIInterviewService.instance) {
@@ -54,6 +63,94 @@ class AIInterviewService {
     
     const shuffled = filteredQuestions.sort(() => 0.5 - Math.random());
     return shuffled.slice(0, count);
+  }
+
+  async generateDynamicFollowUp(userResponse: string, originalQuestion: string, category: string): Promise<string> {
+    if (!this.openAIApiKey) {
+      return this.generateStaticFollowUp(userResponse, category);
+    }
+
+    try {
+      const prompt = `
+You are an experienced interviewer conducting a ${category} interview. 
+The candidate just answered: "${originalQuestion}"
+Their response was: "${userResponse}"
+
+Generate a natural, conversational follow-up question that:
+1. Builds on their specific response
+2. Digs deeper into their experience
+3. Feels like a natural conversation
+4. Is appropriate for a ${category} interview
+5. Is concise (1-2 sentences max)
+
+Respond only with the follow-up question, no additional text.
+`;
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.openAIApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert interviewer. Generate natural, conversational follow-up questions based on candidate responses.',
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: 150,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content.trim();
+    } catch (error) {
+      console.error('Dynamic follow-up generation error:', error);
+      return this.generateStaticFollowUp(userResponse, category);
+    }
+  }
+
+  private generateStaticFollowUp(userResponse: string, category: string): string {
+    const responseWords = userResponse.toLowerCase();
+    
+    if (category === 'behavioral') {
+      if (responseWords.includes('team') || responseWords.includes('collaboration')) {
+        return "That's interesting. How did you handle any conflicts or differing opinions within the team during this situation?";
+      } else if (responseWords.includes('challenge') || responseWords.includes('difficult')) {
+        return "It sounds like you navigated that well. What specific skills did you develop from this experience that you still use today?";
+      } else if (responseWords.includes('project') || responseWords.includes('deadline')) {
+        return "Great approach. How did you measure the success of this project, and what would you do differently next time?";
+      } else {
+        return "Thank you for that example. Can you walk me through what you learned from this experience and how it has influenced your approach since then?";
+      }
+    } else if (category === 'technical') {
+      if (responseWords.includes('debug') || responseWords.includes('problem')) {
+        return "That's a solid approach. Can you give me an example of a particularly challenging technical issue you solved recently?";
+      } else if (responseWords.includes('code') || responseWords.includes('review')) {
+        return "Code quality is important. How do you balance writing clean, maintainable code with meeting tight deadlines?";
+      } else {
+        return "That demonstrates good technical thinking. How do you stay updated with new technologies and decide which ones to learn?";
+      }
+    } else { // leadership
+      if (responseWords.includes('motivate') || responseWords.includes('team')) {
+        return "Leadership styles vary. Can you describe a time when you had to adapt your approach for different team members?";
+      } else if (responseWords.includes('decision') || responseWords.includes('difficult')) {
+        return "Decision-making is crucial. How do you gather input from your team when making important decisions?";
+      } else {
+        return "That shows strong leadership. How do you measure your effectiveness as a leader?";
+      }
+    }
   }
 
   async textToSpeech(text: string, voiceId: string = 'pNInz6obpgDQGcFmaJgB'): Promise<string | null> {
@@ -104,6 +201,38 @@ class AIInterviewService {
     }
   }
 
+  async speechToText(audioBlob: Blob): Promise<string | null> {
+    if (!this.openAIApiKey) {
+      console.warn('OpenAI API key not configured for speech-to-text');
+      return null;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'audio.webm');
+      formData.append('model', 'whisper-1');
+      formData.append('language', 'en');
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.openAIApiKey}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI Whisper API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.text;
+    } catch (error) {
+      console.error('Speech-to-text error:', error);
+      return null;
+    }
+  }
+
   async analyzeResponses(responses: InterviewResponse[]): Promise<InterviewFeedback> {
     if (!this.openAIApiKey) {
       console.warn('OpenAI API key not configured, using mock feedback');
@@ -150,6 +279,18 @@ class AIInterviewService {
     }
   }
 
+  addConversationTurn(turn: ConversationTurn) {
+    this.conversationHistory.push(turn);
+  }
+
+  getConversationHistory(): ConversationTurn[] {
+    return [...this.conversationHistory];
+  }
+
+  clearConversationHistory() {
+    this.conversationHistory = [];
+  }
+
   async startSpeechRecognition(): Promise<string> {
     return new Promise((resolve, reject) => {
       if (Platform.OS !== 'web' || !('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
@@ -160,21 +301,60 @@ class AIInterviewService {
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
       const recognition = new SpeechRecognition();
 
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.continuous = true;
+      recognition.interimResults = true;
       recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
+
+      let finalTranscript = '';
+      let timeoutId: NodeJS.Timeout;
+
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+      };
 
       recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        resolve(transcript);
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        // Clear existing timeout
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+
+        // Set new timeout for silence detection
+        timeoutId = setTimeout(() => {
+          if (finalTranscript.trim() || interimTranscript.trim()) {
+            recognition.stop();
+            resolve((finalTranscript + interimTranscript).trim());
+          }
+        }, 2000); // 2 seconds of silence
       };
 
       recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
         reject(new Error(`Speech recognition error: ${event.error}`));
       };
 
       recognition.onend = () => {
-        // Recognition ended
+        console.log('Speech recognition ended');
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (finalTranscript.trim()) {
+          resolve(finalTranscript.trim());
+        }
       };
 
       recognition.start();
@@ -352,12 +532,21 @@ class AIInterviewService {
     });
 
     prompt += `
-Please provide feedback in the following format:
-1. Overall Score (0-100)
-2. Top 3 Strengths
-3. Top 3 Areas for Improvement
-4. Detailed feedback for each response with individual scores
-5. Specific recommendations for improvement
+Please provide feedback in the following JSON format:
+{
+  "overallScore": 85,
+  "strengths": ["strength1", "strength2", "strength3"],
+  "improvements": ["improvement1", "improvement2", "improvement3"],
+  "detailedFeedback": [
+    {
+      "questionId": "question_id",
+      "score": 80,
+      "feedback": "detailed feedback",
+      "suggestions": ["suggestion1", "suggestion2"]
+    }
+  ],
+  "recommendations": ["recommendation1", "recommendation2", "recommendation3"]
+}
 
 Focus on:
 - Communication clarity and structure
@@ -372,6 +561,24 @@ Focus on:
   }
 
   private parseFeedbackResponse(analysis: string, responses: InterviewResponse[]): InterviewFeedback {
+    try {
+      // Try to parse JSON response
+      const jsonMatch = analysis.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          overallScore: parsed.overallScore || 75,
+          strengths: parsed.strengths || [],
+          improvements: parsed.improvements || [],
+          detailedFeedback: parsed.detailedFeedback || [],
+          recommendations: parsed.recommendations || []
+        };
+      }
+    } catch (error) {
+      console.error('Error parsing AI feedback:', error);
+    }
+
+    // Fallback to text parsing
     const lines = analysis.split('\n').filter(line => line.trim());
     
     const scoreMatch = analysis.match(/(\d{1,3})(?:\s*\/\s*100|\s*%|\s*out of 100)/i);

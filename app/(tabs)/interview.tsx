@@ -25,7 +25,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader } from 'lucide-react-native';
+import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer, MessageCircle } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
 
 const { width, height } = Dimensions.get('window');
@@ -38,8 +38,8 @@ const interviewTypes = [
     icon: Brain,
     color: '#667eea',
     difficulty: 'Advanced',
-    duration: '45 min',
-    questions: 12
+    duration: '10 min',
+    questions: 5
   },
   {
     id: 'behavioral',
@@ -48,8 +48,8 @@ const interviewTypes = [
     icon: Users,
     color: '#f093fb',
     difficulty: 'Intermediate',
-    duration: '30 min',
-    questions: 8
+    duration: '10 min',
+    questions: 5
   },
   {
     id: 'leadership',
@@ -58,8 +58,8 @@ const interviewTypes = [
     icon: Award,
     color: '#4ecdc4',
     difficulty: 'Expert',
-    duration: '60 min',
-    questions: 15
+    duration: '10 min',
+    questions: 5
   },
 ];
 
@@ -100,6 +100,9 @@ export default function InterviewScreen() {
     permissionsGranted,
     interviewStarted,
     conversationState,
+    conversationHistory,
+    interviewTimeRemaining,
+    currentTranscript,
     startInterview,
     nextQuestion,
     previousQuestion,
@@ -197,6 +200,12 @@ export default function InterviewScreen() {
     }
   };
 
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const headerStyle = useAnimatedStyle(() => {
     return {
       opacity: headerOpacity.value,
@@ -224,16 +233,16 @@ export default function InterviewScreen() {
   // Get conversation state display
   const getConversationStateDisplay = () => {
     switch (conversationState) {
-      case 'waiting_for_question':
-        return { text: 'Preparing question...', color: '#667eea' };
-      case 'question_playing':
-        return { text: 'AI is asking...', color: '#f093fb' };
+      case 'ai_speaking':
+        return { text: 'AI is speaking...', color: '#f093fb' };
       case 'waiting_for_response':
         return { text: 'Your turn to speak', color: '#4ecdc4' };
+      case 'user_speaking':
+        return { text: 'Listening...', color: '#667eea' };
       case 'processing_response':
         return { text: 'Processing your answer...', color: '#feca57' };
-      case 'ai_responding':
-        return { text: 'AI is responding...', color: '#f093fb' };
+      case 'generating_followup':
+        return { text: 'Generating follow-up...', color: '#f093fb' };
       default:
         return { text: 'Ready', color: '#667eea' };
     }
@@ -298,6 +307,64 @@ export default function InterviewScreen() {
         </BlurView>
       </View>
     </Modal>
+  );
+
+  // Conversation History Component
+  const ConversationHistory = () => (
+    <View style={styles.conversationHistory}>
+      <Text style={styles.conversationHistoryTitle}>Conversation</Text>
+      <ScrollView style={styles.conversationScroll} showsVerticalScrollIndicator={false}>
+        {conversationHistory.map((turn, index) => (
+          <View key={turn.id} style={styles.conversationTurn}>
+            <View style={[
+              styles.conversationBubble,
+              turn.type === 'user_response' ? styles.userBubble : styles.aiBubble
+            ]}>
+              <View style={styles.conversationHeader}>
+                {turn.type === 'user_response' ? (
+                  <View style={styles.conversationSender}>
+                    <View style={styles.userIcon}>
+                      <Text style={styles.userIconText}>You</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.conversationSender}>
+                    <Brain color="#667eea" size={16} strokeWidth={2} />
+                    <Text style={styles.aiSenderText}>AI Interviewer</Text>
+                  </View>
+                )}
+                {turn.duration && (
+                  <Text style={styles.conversationDuration}>
+                    {Math.floor(turn.duration / 60)}:{(turn.duration % 60).toString().padStart(2, '0')}
+                  </Text>
+                )}
+              </View>
+              <Text style={styles.conversationText}>{turn.content}</Text>
+            </View>
+          </View>
+        ))}
+        
+        {/* Current transcript while speaking */}
+        {currentTranscript && conversationState === 'user_speaking' && (
+          <View style={styles.conversationTurn}>
+            <View style={[styles.conversationBubble, styles.userBubble, styles.transcriptBubble]}>
+              <View style={styles.conversationHeader}>
+                <View style={styles.conversationSender}>
+                  <View style={styles.userIcon}>
+                    <Text style={styles.userIconText}>You</Text>
+                  </View>
+                </View>
+                <View style={styles.listeningIndicator}>
+                  <View style={styles.listeningDot} />
+                  <Text style={styles.listeningText}>Speaking...</Text>
+                </View>
+              </View>
+              <Text style={[styles.conversationText, styles.transcriptText]}>{currentTranscript}</Text>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 
   // Feedback Screen
@@ -466,15 +533,16 @@ export default function InterviewScreen() {
                 </View>
               </View>
               
-              <TouchableOpacity style={styles.settingsButton}>
-                <Settings color="white" size={24} />
-              </TouchableOpacity>
+              <View style={styles.timerContainer}>
+                <Timer color="#667eea" size={16} strokeWidth={2} />
+                <Text style={styles.timerText}>{formatTime(interviewTimeRemaining)}</Text>
+              </View>
             </View>
 
             {/* Conversation State Indicator */}
             <View style={styles.conversationStateContainer}>
               <View style={[styles.conversationStateIndicator, { backgroundColor: `${stateDisplay.color}20` }]}>
-                {conversationState === 'processing_response' || conversationState === 'ai_responding' ? (
+                {conversationState === 'processing_response' || conversationState === 'generating_followup' ? (
                   <Loader color={stateDisplay.color} size={16} strokeWidth={2} />
                 ) : (
                   <Brain color={stateDisplay.color} size={16} strokeWidth={2} />
@@ -485,130 +553,91 @@ export default function InterviewScreen() {
               </View>
             </View>
 
-            {/* AI Interviewer */}
-            <View style={styles.interviewerContainer}>
-              <View style={styles.interviewerAvatar}>
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  style={styles.interviewerGradient}
-                >
-                  <Brain color="white" size={48} strokeWidth={2} />
-                </LinearGradient>
-              </View>
-              <Text style={styles.interviewerName}>AI Interviewer</Text>
-              <Text style={styles.interviewerRole}>Senior Technical Recruiter</Text>
-            </View>
+            {/* Main Content Area */}
+            <View style={styles.mainContent}>
+              {/* Conversation History */}
+              <ConversationHistory />
 
-            {/* Current Question */}
-            <View style={styles.questionContainer}>
-              <BlurView intensity={20} style={styles.questionBlur}>
-                <View style={styles.questionContent}>
-                  <Text style={styles.questionText}>
-                    {currentQuestion?.question}
-                  </Text>
+              {/* Recording Controls */}
+              <View style={styles.recordingControls}>
+                {currentQuestionIndex > 0 && (
+                  <TouchableOpacity 
+                    style={styles.navButton} 
+                    onPress={previousQuestion}
+                    disabled={conversationState !== 'waiting_for_response'}
+                  >
+                    <ArrowLeft color={conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
+                  </TouchableOpacity>
+                )}
+                
+                <View style={styles.recordingButtonContainer}>
+                  <GestureDetector gesture={Gesture.Tap().onEnd(() => runOnJS(handleRecordToggle)())}>
+                    <Animated.View style={[styles.recordButton, recordStyle]}>
+                      <TouchableOpacity 
+                        onPress={handleRecordToggle}
+                        disabled={conversationState !== 'waiting_for_response'}
+                      >
+                        <LinearGradient
+                          colors={isRecording ? ['#ff6b6b', '#ff8e8e'] : ['#667eea', '#764ba2']}
+                          style={[
+                            styles.recordButtonGradient,
+                            conversationState !== 'waiting_for_response' && styles.recordButtonDisabled
+                          ]}
+                        >
+                          <Animated.View style={pulseStyle}>
+                            {isRecording ? (
+                              <Square color="white" size={32} strokeWidth={2} />
+                            ) : (
+                              <Mic color="white" size={32} strokeWidth={2} />
+                            )}
+                          </Animated.View>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </Animated.View>
+                  </GestureDetector>
                   
                   <TouchableOpacity 
-                    style={styles.playQuestionButton}
-                    onPress={isPlaying ? stopPlaying : playQuestion}
-                    disabled={conversationState === 'question_playing'}
+                    style={styles.manualInputButton}
+                    onPress={() => setShowManualInput(true)}
+                    disabled={conversationState !== 'waiting_for_response'}
                   >
-                    <LinearGradient
-                      colors={['rgba(102, 126, 234, 0.2)', 'rgba(118, 75, 162, 0.2)']}
-                      style={styles.playQuestionButtonGradient}
-                    >
-                      {isPlaying ? (
-                        <Pause color="#667eea" size={20} strokeWidth={2} />
-                      ) : (
-                        <Play color="#667eea" size={20} strokeWidth={2} />
-                      )}
-                      <Text style={styles.playQuestionButtonText}>
-                        {isPlaying ? 'Stop' : 'Replay Question'}
-                      </Text>
-                    </LinearGradient>
+                    <MessageSquare color={conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
                   </TouchableOpacity>
                 </View>
-              </BlurView>
-            </View>
-
-            {/* Recording Controls */}
-            <View style={styles.recordingControls}>
-              {currentQuestionIndex > 0 && (
-                <TouchableOpacity 
-                  style={styles.navButton} 
-                  onPress={previousQuestion}
-                  disabled={conversationState !== 'waiting_for_response'}
-                >
-                  <ArrowLeft color={conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
-                </TouchableOpacity>
-              )}
-              
-              <View style={styles.recordingButtonContainer}>
-                <GestureDetector gesture={Gesture.Tap().onEnd(() => runOnJS(handleRecordToggle)())}>
-                  <Animated.View style={[styles.recordButton, recordStyle]}>
-                    <TouchableOpacity 
-                      onPress={handleRecordToggle}
-                      disabled={conversationState !== 'waiting_for_response'}
-                    >
-                      <LinearGradient
-                        colors={isRecording ? ['#ff6b6b', '#ff8e8e'] : ['#667eea', '#764ba2']}
-                        style={[
-                          styles.recordButtonGradient,
-                          conversationState !== 'waiting_for_response' && styles.recordButtonDisabled
-                        ]}
-                      >
-                        <Animated.View style={pulseStyle}>
-                          {isRecording ? (
-                            <Square color="white" size={32} strokeWidth={2} />
-                          ) : (
-                            <Mic color="white" size={32} strokeWidth={2} />
-                          )}
-                        </Animated.View>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                </GestureDetector>
                 
                 <TouchableOpacity 
-                  style={styles.manualInputButton}
-                  onPress={() => setShowManualInput(true)}
-                  disabled={conversationState !== 'waiting_for_response'}
+                  style={[styles.navButton, !hasResponse && styles.navButtonDisabled]} 
+                  onPress={handleNextQuestion}
+                  disabled={!hasResponse || conversationState !== 'waiting_for_response'}
                 >
-                  <MessageSquare color={conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
+                  {currentQuestionIndex === totalQuestions - 1 ? (
+                    <CheckCircle color={hasResponse && conversationState === 'waiting_for_response' ? "#4ecdc4" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
+                  ) : (
+                    <ArrowRight color={hasResponse && conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
+                  )}
                 </TouchableOpacity>
               </View>
-              
-              <TouchableOpacity 
-                style={[styles.navButton, !hasResponse && styles.navButtonDisabled]} 
-                onPress={handleNextQuestion}
-                disabled={!hasResponse || conversationState !== 'waiting_for_response'}
-              >
-                {currentQuestionIndex === totalQuestions - 1 ? (
-                  <CheckCircle color={hasResponse && conversationState === 'waiting_for_response' ? "#4ecdc4" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
-                ) : (
-                  <ArrowRight color={hasResponse && conversationState === 'waiting_for_response' ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.3)"} size={24} strokeWidth={2} />
-                )}
-              </TouchableOpacity>
-            </View>
 
-            {/* Recording Status */}
-            {isRecording && (
-              <View style={styles.recordingStatus}>
-                <View style={styles.recordingIndicator}>
-                  <Animated.View style={[styles.recordingDot, pulseStyle]} />
-                  <Text style={styles.recordingText}>
-                    {Platform.OS === 'web' ? 'Listening...' : 'Recording...'}
-                  </Text>
+              {/* Recording Status */}
+              {isRecording && (
+                <View style={styles.recordingStatus}>
+                  <View style={styles.recordingIndicator}>
+                    <Animated.View style={[styles.recordingDot, pulseStyle]} />
+                    <Text style={styles.recordingText}>
+                      {Platform.OS === 'web' ? 'Listening...' : 'Recording...'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            )}
+              )}
 
-            {/* Response Status */}
-            {hasResponse && (
-              <View style={styles.responseStatus}>
-                <CheckCircle color="#4ecdc4" size={16} strokeWidth={2} />
-                <Text style={styles.responseStatusText}>Response recorded</Text>
-              </View>
-            )}
+              {/* Response Status */}
+              {hasResponse && (
+                <View style={styles.responseStatus}>
+                  <CheckCircle color="#4ecdc4" size={16} strokeWidth={2} />
+                  <Text style={styles.responseStatusText}>Response recorded</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Manual Input Modal */}
@@ -1102,8 +1131,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#667eea',
     borderRadius: 2,
   },
-  settingsButton: {
-    padding: 8,
+  timerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  timerText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#667eea',
+    marginLeft: 6,
   },
   conversationStateContainer: {
     alignItems: 'center',
@@ -1123,81 +1163,108 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     marginLeft: 8,
   },
-  interviewerContainer: {
-    alignItems: 'center',
-    marginBottom: 32,
+  mainContent: {
+    flex: 1,
   },
-  interviewerAvatar: {
-    marginBottom: 16,
-  },
-  interviewerGradient: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.4,
-    shadowRadius: 30,
-    elevation: 20,
-  },
-  interviewerName: {
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginBottom: 4,
-  },
-  interviewerRole: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  questionContainer: {
-    marginBottom: 32,
-  },
-  questionBlur: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  questionContent: {
-    padding: 24,
-  },
-  questionText: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: 'white',
-    lineHeight: 24,
-    textAlign: 'center',
+  conversationHistory: {
+    flex: 1,
     marginBottom: 20,
   },
-  playQuestionButton: {
-    alignSelf: 'center',
-    borderRadius: 12,
-    overflow: 'hidden',
+  conversationHistoryTitle: {
+    fontSize: 16,
+    fontFamily: 'SpaceGrotesk-SemiBold',
+    color: 'white',
+    marginBottom: 12,
   },
-  playQuestionButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  conversationScroll: {
+    flex: 1,
+    maxHeight: height * 0.4,
+  },
+  conversationTurn: {
+    marginBottom: 16,
+  },
+  conversationBubble: {
+    borderRadius: 16,
+    padding: 16,
+    maxWidth: '85%',
+  },
+  userBubble: {
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    alignSelf: 'flex-end',
+    borderBottomRightRadius: 4,
+  },
+  aiBubble: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignSelf: 'flex-start',
+    borderBottomLeftRadius: 4,
+  },
+  transcriptBubble: {
+    opacity: 0.7,
     borderWidth: 1,
     borderColor: 'rgba(102, 126, 234, 0.3)',
   },
-  playQuestionButtonText: {
-    fontSize: 14,
+  conversationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  conversationSender: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userIcon: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  userIconText: {
+    fontSize: 10,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
+  },
+  aiSenderText: {
+    fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     color: '#667eea',
-    marginLeft: 8,
+    marginLeft: 6,
+  },
+  conversationDuration: {
+    fontSize: 10,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  conversationText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: 'white',
+    lineHeight: 20,
+  },
+  transcriptText: {
+    fontStyle: 'italic',
+  },
+  listeningIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  listeningDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4ecdc4',
+    marginRight: 6,
+  },
+  listeningText: {
+    fontSize: 10,
+    fontFamily: 'Inter-Medium',
+    color: '#4ecdc4',
   },
   recordingControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 20,
   },
   navButton: {
     width: 48,

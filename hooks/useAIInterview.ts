@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Platform, Alert } from 'react-native';
-import AIInterviewService, { InterviewQuestion, InterviewResponse, InterviewFeedback } from '@/services/aiInterviewService';
+import AIInterviewService, { InterviewQuestion, InterviewResponse, InterviewFeedback, ConversationTurn } from '@/services/aiInterviewService';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 
@@ -16,7 +16,10 @@ export interface UseAIInterviewReturn {
   feedback: InterviewFeedback | null;
   permissionsGranted: boolean;
   interviewStarted: boolean;
-  conversationState: 'waiting_for_question' | 'question_playing' | 'waiting_for_response' | 'processing_response' | 'ai_responding';
+  conversationState: 'idle' | 'ai_speaking' | 'waiting_for_response' | 'user_speaking' | 'processing_response' | 'generating_followup';
+  conversationHistory: ConversationTurn[];
+  interviewTimeRemaining: number;
+  currentTranscript: string;
   
   // Actions
   startInterview: (type: 'behavioral' | 'technical' | 'leadership') => Promise<void>;
@@ -42,7 +45,10 @@ export function useAIInterview(): UseAIInterviewReturn {
   const [feedback, setFeedback] = useState<InterviewFeedback | null>(null);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [interviewStarted, setInterviewStarted] = useState(false);
-  const [conversationState, setConversationState] = useState<'waiting_for_question' | 'question_playing' | 'waiting_for_response' | 'processing_response' | 'ai_responding'>('waiting_for_question');
+  const [conversationState, setConversationState] = useState<'idle' | 'ai_speaking' | 'waiting_for_response' | 'user_speaking' | 'processing_response' | 'generating_followup'>('idle');
+  const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
+  const [interviewTimeRemaining, setInterviewTimeRemaining] = useState(600); // 10 minutes
+  const [currentTranscript, setCurrentTranscript] = useState('');
   
   const aiService = AIInterviewService.getInstance();
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -50,10 +56,10 @@ export function useAIInterview(): UseAIInterviewReturn {
   const recordingStartTime = useRef<number>(0);
   const speechRecognitionRef = useRef<any>(null);
   const isRecordingRef = useRef(false);
-  const autoPlayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isProcessingResponseRef = useRef(false);
-  const conversationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const interviewTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const currentQuestion = questions[currentQuestionIndex] || null;
   const totalQuestions = questions.length;
@@ -111,6 +117,22 @@ export function useAIInterview(): UseAIInterviewReturn {
     }
   }, []);
 
+  const startInterviewTimer = useCallback(() => {
+    if (interviewTimerRef.current) {
+      clearInterval(interviewTimerRef.current);
+    }
+
+    interviewTimerRef.current = setInterval(() => {
+      setInterviewTimeRemaining(prev => {
+        if (prev <= 1) {
+          finishInterview();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
   const startInterview = useCallback(async (type: 'behavioral' | 'technical' | 'leadership') => {
     try {
       console.log('Starting interview with type:', type);
@@ -132,7 +154,10 @@ export function useAIInterview(): UseAIInterviewReturn {
       setResponses([]);
       setFeedback(null);
       setInterviewStarted(true);
-      setConversationState('waiting_for_question');
+      setConversationState('idle');
+      setConversationHistory([]);
+      setInterviewTimeRemaining(600); // Reset to 10 minutes
+      aiService.clearConversationHistory();
       
       console.log('Interview started successfully');
       
@@ -142,10 +167,13 @@ export function useAIInterview(): UseAIInterviewReturn {
         console.log('Permissions not granted, but interview can continue with manual input');
       }
 
-      // Start the conversation flow with the first question
+      // Start the interview timer
+      startInterviewTimer();
+
+      // Start with AI introduction
       setTimeout(() => {
-        playCurrentQuestion();
-      }, 1500);
+        playIntroduction(type);
+      }, 1000);
       
     } catch (error) {
       console.error('Error starting interview:', error);
@@ -155,42 +183,80 @@ export function useAIInterview(): UseAIInterviewReturn {
         [{ text: 'OK' }]
       );
     }
-  }, [requestPermissions]);
+  }, [requestPermissions, startInterviewTimer]);
+
+  const playIntroduction = useCallback(async (type: string) => {
+    const introText = `Hello! I'm your AI interviewer today. We'll be conducting a ${type} interview that will last about 10 minutes. I'll ask you several questions and follow up based on your responses. Let's begin with our first question.`;
+    
+    const introTurn: ConversationTurn = {
+      id: `intro_${Date.now()}`,
+      type: 'ai_question',
+      content: introText,
+      timestamp: new Date().toISOString()
+    };
+
+    setConversationHistory(prev => [...prev, introTurn]);
+    aiService.addConversationTurn(introTurn);
+
+    await playAIResponse(introText);
+    
+    // After introduction, ask the first question
+    setTimeout(() => {
+      playCurrentQuestion();
+    }, 1000);
+  }, []);
 
   const playCurrentQuestion = useCallback(async () => {
-    if (!currentQuestion || isPlaying || conversationState === 'question_playing') return;
+    if (!currentQuestion || isPlaying || conversationState === 'ai_speaking') return;
 
     try {
       console.log('Playing current question:', currentQuestion.question.substring(0, 50) + '...');
       
-      // Stop any currently playing audio
-      stopPlaying();
-      
-      setIsPlaying(true);
-      setConversationState('question_playing');
+      const questionTurn: ConversationTurn = {
+        id: `question_${currentQuestion.id}_${Date.now()}`,
+        type: 'ai_question',
+        content: currentQuestion.question,
+        timestamp: new Date().toISOString()
+      };
 
+      setConversationHistory(prev => [...prev, questionTurn]);
+      aiService.addConversationTurn(questionTurn);
+
+      await playAIResponse(currentQuestion.question);
+      
+    } catch (error) {
+      console.error('Error playing question:', error);
+      setConversationState('waiting_for_response');
+    }
+  }, [currentQuestion, isPlaying, conversationState]);
+
+  const playAIResponse = useCallback(async (text: string) => {
+    setConversationState('ai_speaking');
+    setIsPlaying(true);
+
+    try {
       if (Platform.OS === 'web') {
         // Try ElevenLabs first, then fallback to browser speech
         try {
-          const audioUrl = await aiService.textToSpeech(currentQuestion.question);
+          const audioUrl = await aiService.textToSpeech(text);
           if (audioUrl && audioUrl.startsWith('data:')) {
             const audio = new Audio(audioUrl);
             audio.onended = () => {
               setIsPlaying(false);
               setConversationState('waiting_for_response');
-              console.log('Question finished playing, waiting for user response');
+              console.log('AI finished speaking, waiting for user response');
             };
             audio.onerror = () => {
               setIsPlaying(false);
-              fallbackToWebSpeech();
+              fallbackToWebSpeech(text);
             };
             await audio.play();
           } else {
-            fallbackToWebSpeech();
+            fallbackToWebSpeech(text);
           }
         } catch (error) {
           console.error('ElevenLabs TTS error:', error);
-          fallbackToWebSpeech();
+          fallbackToWebSpeech(text);
         }
       } else {
         // Use Expo Speech for mobile
@@ -202,7 +268,7 @@ export function useAIInterview(): UseAIInterviewReturn {
           onDone: () => {
             setIsPlaying(false);
             setConversationState('waiting_for_response');
-            console.log('Question finished playing, waiting for user response');
+            console.log('AI finished speaking, waiting for user response');
           },
           onError: (error: any) => {
             console.error('Speech error:', error);
@@ -215,23 +281,21 @@ export function useAIInterview(): UseAIInterviewReturn {
           },
         };
 
-        await Speech.speak(currentQuestion.question, speechOptions);
+        await Speech.speak(text, speechOptions);
       }
     } catch (error) {
-      console.error('Error playing question:', error);
+      console.error('Error playing AI response:', error);
       setIsPlaying(false);
       setConversationState('waiting_for_response');
     }
-  }, [currentQuestion, isPlaying, conversationState]);
+  }, []);
 
-  const fallbackToWebSpeech = useCallback(() => {
-    if (!currentQuestion) return;
-    
+  const fallbackToWebSpeech = useCallback((text: string) => {
     if ('speechSynthesis' in window) {
       // Cancel any existing speech
       speechSynthesis.cancel();
       
-      const utterance = new SpeechSynthesisUtterance(currentQuestion.question);
+      const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.85;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
@@ -244,7 +308,7 @@ export function useAIInterview(): UseAIInterviewReturn {
       utterance.onend = () => {
         setIsPlaying(false);
         setConversationState('waiting_for_response');
-        console.log('Question finished playing, waiting for user response');
+        console.log('AI finished speaking, waiting for user response');
         currentUtteranceRef.current = null;
       };
       
@@ -261,13 +325,13 @@ export function useAIInterview(): UseAIInterviewReturn {
       setIsPlaying(false);
       setConversationState('waiting_for_response');
     }
-  }, [currentQuestion]);
+  }, []);
 
   const nextQuestion = useCallback(() => {
     if (currentQuestionIndex < questions.length - 1) {
       console.log('Moving to next question');
       setCurrentQuestionIndex(prev => prev + 1);
-      setConversationState('waiting_for_question');
+      setConversationState('idle');
       
       // Auto-play the next question after a short delay
       setTimeout(() => {
@@ -283,7 +347,7 @@ export function useAIInterview(): UseAIInterviewReturn {
     if (currentQuestionIndex > 0) {
       console.log('Moving to previous question');
       setCurrentQuestionIndex(prev => prev - 1);
-      setConversationState('waiting_for_question');
+      setConversationState('idle');
       
       // Auto-play the previous question after a short delay
       setTimeout(() => {
@@ -312,7 +376,7 @@ export function useAIInterview(): UseAIInterviewReturn {
       console.error('Error stopping speech:', error);
     } finally {
       setIsPlaying(false);
-      if (conversationState === 'question_playing') {
+      if (conversationState === 'ai_speaking') {
         setConversationState('waiting_for_response');
       }
     }
@@ -325,17 +389,6 @@ export function useAIInterview(): UseAIInterviewReturn {
       if (isRecording || isRecordingRef.current) {
         console.log('Recording already in progress');
         return;
-      }
-
-      // Clean up any existing recording object before starting a new one
-      if (recordingRef.current) {
-        console.log('Cleaning up existing recording object...');
-        try {
-          await recordingRef.current.stopAndUnloadAsync();
-        } catch (cleanupError) {
-          console.log('Recording cleanup completed or was already cleaned up');
-        }
-        recordingRef.current = null;
       }
 
       if (conversationState !== 'waiting_for_response') {
@@ -362,81 +415,59 @@ export function useAIInterview(): UseAIInterviewReturn {
       setIsRecording(true);
       isRecordingRef.current = true;
       recordingStartTime.current = Date.now();
-      setConversationState('waiting_for_response'); // Keep in response mode while recording
+      setConversationState('user_speaking');
+      setCurrentTranscript('');
 
       if (Platform.OS === 'web') {
-        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-          const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-          const recognition = new SpeechRecognition();
+        // Use MediaRecorder for better audio quality
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            }
+          });
           
-          recognition.continuous = true;
-          recognition.interimResults = false;
-          recognition.lang = 'en-US';
-          recognition.maxAlternatives = 1;
-
-          recognition.onstart = () => {
-            console.log('Speech recognition started');
-          };
-
-          recognition.onresult = (event: any) => {
-            console.log('Speech recognition result received');
-            let transcript = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              transcript += event.results[i][0].transcript;
+          audioChunksRef.current = [];
+          const mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm;codecs=opus'
+          });
+          
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunksRef.current.push(event.data);
             }
+          };
+          
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
             
-            if (transcript.trim()) {
-              console.log('Transcript:', transcript.trim());
+            // Try to transcribe with OpenAI Whisper
+            const transcript = await aiService.speechToText(audioBlob);
+            
+            if (transcript && transcript.trim()) {
+              setCurrentTranscript(transcript);
               submitResponse(transcript.trim());
-            }
-          };
-
-          recognition.onerror = (event: any) => {
-            console.error('Speech recognition error:', event.error);
-            setIsRecording(false);
-            isRecordingRef.current = false;
-            speechRecognitionRef.current = null;
-            
-            if (event.error === 'not-allowed') {
-              Alert.alert(
-                'Microphone Access Denied',
-                'Please allow microphone access and try again.',
-                [{ text: 'OK' }]
-              );
-            } else if (event.error === 'no-speech') {
-              Alert.alert(
-                'No Speech Detected',
-                'Please speak clearly and try again.',
-                [{ text: 'OK' }]
-              );
             } else {
-              Alert.alert(
-                'Speech Recognition Error',
-                'Unable to recognize speech. Please try typing your response instead.',
-                [{ text: 'OK' }]
-              );
+              // Fallback to speech recognition
+              startWebSpeechRecognition();
             }
+            
+            // Clean up
+            stream.getTracks().forEach(track => track.stop());
           };
-
-          recognition.onend = () => {
-            console.log('Speech recognition ended');
-            setIsRecording(false);
-            isRecordingRef.current = false;
-            speechRecognitionRef.current = null;
-          };
-
-          speechRecognitionRef.current = recognition;
-          recognition.start();
-        } else {
-          setIsRecording(false);
-          isRecordingRef.current = false;
-          Alert.alert(
-            'Speech Recognition Not Supported',
-            'Your browser does not support speech recognition. Please type your response instead.',
-            [{ text: 'OK' }]
-          );
+          
+          mediaRecorderRef.current = mediaRecorder;
+          mediaRecorder.start();
+          
+        } catch (error) {
+          console.error('MediaRecorder error:', error);
+          // Fallback to speech recognition
+          startWebSpeechRecognition();
         }
       } else {
+        // Mobile recording with Expo Audio
         try {
           console.log('Setting up mobile recording...');
           
@@ -488,6 +519,7 @@ export function useAIInterview(): UseAIInterviewReturn {
           setIsRecording(false);
           isRecordingRef.current = false;
           recordingRef.current = null;
+          setConversationState('waiting_for_response');
           
           Alert.alert(
             'Recording Error',
@@ -501,8 +533,86 @@ export function useAIInterview(): UseAIInterviewReturn {
       setIsRecording(false);
       isRecordingRef.current = false;
       recordingRef.current = null;
+      setConversationState('waiting_for_response');
     }
   }, [isRecording, permissionsGranted, requestPermissions, stopPlaying, conversationState]);
+
+  const startWebSpeechRecognition = useCallback(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      const recognition = new SpeechRecognition();
+      
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
+
+      let finalTranscript = '';
+
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+      };
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        setCurrentTranscript(finalTranscript + interimTranscript);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        speechRecognitionRef.current = null;
+        setConversationState('waiting_for_response');
+        
+        if (event.error === 'not-allowed') {
+          Alert.alert(
+            'Microphone Access Denied',
+            'Please allow microphone access and try again.',
+            [{ text: 'OK' }]
+          );
+        } else if (event.error === 'no-speech') {
+          Alert.alert(
+            'No Speech Detected',
+            'Please speak clearly and try again.',
+            [{ text: 'OK' }]
+          );
+        }
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended');
+        if (finalTranscript.trim()) {
+          submitResponse(finalTranscript.trim());
+        }
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        speechRecognitionRef.current = null;
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } else {
+      setIsRecording(false);
+      isRecordingRef.current = false;
+      setConversationState('waiting_for_response');
+      Alert.alert(
+        'Speech Recognition Not Supported',
+        'Your browser does not support speech recognition. Please type your response instead.',
+        [{ text: 'OK' }]
+      );
+    }
+  }, []);
 
   const stopRecording = useCallback(async () => {
     try {
@@ -513,12 +623,16 @@ export function useAIInterview(): UseAIInterviewReturn {
       const duration = Date.now() - recordingStartTime.current;
 
       if (Platform.OS === 'web') {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+        
         if (speechRecognitionRef.current) {
           speechRecognitionRef.current.stop();
           speechRecognitionRef.current = null;
         }
       } else {
-        // Capture the current recording reference and immediately clear it
+        // Mobile recording cleanup
         const currentRecording = recordingRef.current;
         recordingRef.current = null;
         
@@ -526,23 +640,20 @@ export function useAIInterview(): UseAIInterviewReturn {
           try {
             console.log('Stopping mobile recording...');
             
-            // Always call stopAndUnloadAsync to properly clean up the recording object
             await currentRecording.stopAndUnloadAsync();
             const uri = currentRecording.getURI();
             
             console.log('Recording saved to:', uri);
             
-            // Generate a more realistic simulated response based on duration
+            // Generate a simulated response for mobile (since we don't have Whisper integration for mobile files)
             const simulatedResponse = generateSimulatedResponse(duration);
             console.log('Generated simulated response:', simulatedResponse);
             
-            // Submit the response which will trigger AI follow-up
             submitResponse(simulatedResponse);
             
           } catch (error) {
             console.error('Error stopping recording:', error);
             
-            // Check if the error is about recorder not existing (already cleaned up)
             if (error instanceof Error && error.message.includes('Recorder does not exist')) {
               console.log('Recorder was already cleaned up, continuing normally');
             } else {
@@ -572,10 +683,10 @@ export function useAIInterview(): UseAIInterviewReturn {
       setIsRecording(false);
       isRecordingRef.current = false;
       recordingRef.current = null;
+      setConversationState('waiting_for_response');
     }
   }, []);
 
-  // Generate a more realistic simulated response based on recording duration
   const generateSimulatedResponse = useCallback((duration: number) => {
     const responses = [
       "In my previous role as a product manager, I faced a challenging situation where our team had conflicting priorities and tight deadlines. I organized a stakeholder meeting to align on objectives, created a clear roadmap with milestones, and established regular check-ins to track progress. This approach helped us deliver the project on time and improved team collaboration.",
@@ -589,7 +700,6 @@ export function useAIInterview(): UseAIInterviewReturn {
       "In my experience, this type of situation requires a balance of technical skills and interpersonal communication. I typically start by gathering all relevant information, consulting with subject matter experts, and then developing a comprehensive plan with clear timelines and deliverables. Regular progress reviews help ensure we stay on track and can adjust as needed."
     ];
     
-    // Select response based on duration and add some randomness
     const baseIndex = Math.floor(duration / 10000) % responses.length;
     const randomOffset = Math.floor(Math.random() * 2);
     const selectedIndex = (baseIndex + randomOffset) % responses.length;
@@ -597,14 +707,13 @@ export function useAIInterview(): UseAIInterviewReturn {
     return responses[selectedIndex];
   }, []);
 
-  const submitResponse = useCallback((response: string) => {
-    if (!currentQuestion || isProcessingResponseRef.current || conversationState === 'processing_response') return;
+  const submitResponse = useCallback(async (response: string) => {
+    if (!currentQuestion || conversationState === 'processing_response') return;
 
     console.log('Submitting response:', response);
     
-    // Prevent multiple simultaneous submissions
-    isProcessingResponseRef.current = true;
     setConversationState('processing_response');
+    setCurrentTranscript('');
     
     const duration = Date.now() - recordingStartTime.current;
     const newResponse: InterviewResponse = {
@@ -614,6 +723,18 @@ export function useAIInterview(): UseAIInterviewReturn {
       duration: Math.floor(duration / 1000),
       timestamp: new Date().toISOString(),
     };
+
+    // Add user response to conversation history
+    const responseTurn: ConversationTurn = {
+      id: `response_${currentQuestion.id}_${Date.now()}`,
+      type: 'user_response',
+      content: response,
+      timestamp: new Date().toISOString(),
+      duration: Math.floor(duration / 1000)
+    };
+
+    setConversationHistory(prev => [...prev, responseTurn]);
+    aiService.addConversationTurn(responseTurn);
 
     setResponses(prev => {
       const filtered = prev.filter(r => r.questionId !== currentQuestion.id);
@@ -625,146 +746,46 @@ export function useAIInterview(): UseAIInterviewReturn {
       isRecordingRef.current = false;
     }
 
-    // Generate AI follow-up response with a slight delay for realism
-    setTimeout(() => {
-      generateAIFollowUp(response);
-    }, 1000);
-  }, [currentQuestion, isRecording, conversationState]);
+    // Generate AI follow-up response
+    setConversationState('generating_followup');
+    
+    try {
+      const followUpResponse = await aiService.generateDynamicFollowUp(
+        response, 
+        currentQuestion.question, 
+        currentQuestion.category
+      );
+      
+      const followUpTurn: ConversationTurn = {
+        id: `followup_${currentQuestion.id}_${Date.now()}`,
+        type: 'ai_followup',
+        content: followUpResponse,
+        timestamp: new Date().toISOString()
+      };
 
-  const generateAIFollowUp = useCallback((userResponse: string) => {
-    console.log('Generating AI follow-up for response:', userResponse.substring(0, 50) + '...');
-    
-    setConversationState('ai_responding');
-    
-    // Enhanced follow-up responses based on response content and question type
-    const getContextualFollowUp = () => {
-      if (!currentQuestion) return "Thank you for sharing that experience.";
-      
-      const responseWords = userResponse.toLowerCase();
-      const questionCategory = currentQuestion.category;
-      
-      // Behavioral question follow-ups
-      if (questionCategory === 'behavioral') {
-        if (responseWords.includes('team') || responseWords.includes('collaboration')) {
-          return "That's a great example of teamwork. Can you tell me more about how you handled any conflicts or differing opinions within the team during this situation?";
-        } else if (responseWords.includes('challenge') || responseWords.includes('difficult')) {
-          return "It sounds like you navigated that challenge well. What specific skills or strategies did you develop from this experience that you still use today?";
-        } else if (responseWords.includes('project') || responseWords.includes('deadline')) {
-          return "Excellent project management approach. How did you measure the success of this project, and what would you do differently if faced with a similar situation?";
-        } else if (responseWords.includes('learn') || responseWords.includes('new')) {
-          return "That shows great adaptability. How do you typically approach learning new skills or technologies, and how do you stay current in your field?";
-        } else {
-          return "Thank you for that detailed example. Can you walk me through what you learned from this experience and how it has influenced your approach to similar situations since then?";
-        }
-      }
-      
-      // Technical question follow-ups
-      else if (questionCategory === 'technical') {
-        if (responseWords.includes('debug') || responseWords.includes('problem')) {
-          return "That's a solid debugging approach. Can you give me an example of a particularly challenging technical issue you solved and what tools or methodologies were most helpful?";
-        } else if (responseWords.includes('code') || responseWords.includes('review')) {
-          return "Code quality is crucial. How do you balance writing clean, maintainable code with meeting tight deadlines? Can you share your approach to technical debt management?";
-        } else if (responseWords.includes('scale') || responseWords.includes('performance')) {
-          return "Scalability is always important. What specific metrics do you use to measure system performance, and how do you identify potential bottlenecks before they become critical issues?";
-        } else {
-          return "That demonstrates strong technical thinking. How do you stay updated with new technologies and decide which ones are worth investing time to learn for your role?";
-        }
-      }
-      
-      // Leadership question follow-ups
-      else if (questionCategory === 'leadership') {
-        if (responseWords.includes('motivate') || responseWords.includes('team')) {
-          return "Leadership styles can vary greatly. Can you describe a time when you had to adapt your leadership approach for different team members or situations?";
-        } else if (responseWords.includes('decision') || responseWords.includes('difficult')) {
-          return "Decision-making is a key leadership skill. How do you gather input from your team when making important decisions, and how do you handle situations where not everyone agrees?";
-        } else if (responseWords.includes('conflict') || responseWords.includes('resolve')) {
-          return "Conflict resolution is challenging. What strategies do you use to ensure all parties feel heard, and how do you prevent similar conflicts from arising in the future?";
-        } else {
-          return "That shows strong leadership qualities. How do you measure your effectiveness as a leader, and what feedback mechanisms do you have in place with your team?";
-        }
-      }
-      
-      // Default follow-up
-      return "Thank you for sharing that experience. Can you elaborate on the key lessons you learned and how they've shaped your professional approach?";
-    };
+      setConversationHistory(prev => [...prev, followUpTurn]);
+      aiService.addConversationTurn(followUpTurn);
 
-    const followUpResponse = getContextualFollowUp();
-    
-    // Simulate AI thinking time (1.5-3 seconds)
-    const thinkingTime = 1500 + Math.random() * 1500;
-    
-    conversationTimeoutRef.current = setTimeout(() => {
-      console.log('AI Follow-up:', followUpResponse);
+      // Play the follow-up response
+      await playAIResponse(followUpResponse);
       
-      // Play the AI follow-up response
-      if (Platform.OS === 'web') {
-        if ('speechSynthesis' in window) {
-          // Stop any currently playing speech
-          speechSynthesis.cancel();
-          
-          const utterance = new SpeechSynthesisUtterance(followUpResponse);
-          utterance.rate = 0.85;
-          utterance.pitch = 1.0;
-          utterance.volume = 1.0;
-          utterance.lang = 'en-US';
-          
-          utterance.onstart = () => {
-            console.log('AI response started playing');
-            setIsPlaying(true);
-          };
-          
-          utterance.onend = () => {
-            console.log('AI response finished playing');
-            setIsPlaying(false);
-            setConversationState('waiting_for_response');
-            isProcessingResponseRef.current = false;
-          };
-          
-          utterance.onerror = (error) => {
-            console.error('Speech synthesis error:', error);
-            setIsPlaying(false);
-            setConversationState('waiting_for_response');
-            isProcessingResponseRef.current = false;
-          };
-          
-          currentUtteranceRef.current = utterance;
-          speechSynthesis.speak(utterance);
-        } else {
-          // No speech synthesis available, just reset state
-          setConversationState('waiting_for_response');
-          isProcessingResponseRef.current = false;
-        }
-      } else {
-        Speech.speak(followUpResponse, {
-          language: 'en-US',
-          pitch: 1.0,
-          rate: 0.85,
-          quality: Speech.VoiceQuality.Enhanced,
-          onStart: () => {
-            console.log('AI response started playing');
-            setIsPlaying(true);
-          },
-          onDone: () => {
-            console.log('AI response finished playing');
-            setIsPlaying(false);
-            setConversationState('waiting_for_response');
-            isProcessingResponseRef.current = false;
-          },
-          onError: (error: any) => {
-            console.error('Speech error:', error);
-            setIsPlaying(false);
-            setConversationState('waiting_for_response');
-            isProcessingResponseRef.current = false;
-          },
-        });
-      }
-    }, thinkingTime);
-  }, [currentQuestion]);
+    } catch (error) {
+      console.error('Error generating follow-up:', error);
+      setConversationState('waiting_for_response');
+    }
+  }, [currentQuestion, conversationState, isRecording, playAIResponse]);
 
   const finishInterview = useCallback(async () => {
     if (responses.length === 0) return;
 
     console.log('Finishing interview with', responses.length, 'responses');
+    
+    // Clear the timer
+    if (interviewTimerRef.current) {
+      clearInterval(interviewTimerRef.current);
+      interviewTimerRef.current = null;
+    }
+    
     setIsProcessing(true);
     setConversationState('processing_response');
     
@@ -772,7 +793,7 @@ export function useAIInterview(): UseAIInterviewReturn {
       const interviewFeedback = await aiService.analyzeResponses(responses);
       setFeedback(interviewFeedback);
       setInterviewStarted(false);
-      setConversationState('waiting_for_question');
+      setConversationState('idle');
     } catch (error) {
       console.error('Error analyzing responses:', error);
       Alert.alert(
@@ -788,25 +809,18 @@ export function useAIInterview(): UseAIInterviewReturn {
   const resetInterview = useCallback(() => {
     console.log('Resetting interview...');
     
-    // Clear all timeouts
-    if (autoPlayTimeoutRef.current) {
-      clearTimeout(autoPlayTimeoutRef.current);
-      autoPlayTimeoutRef.current = null;
+    // Clear timer
+    if (interviewTimerRef.current) {
+      clearInterval(interviewTimerRef.current);
+      interviewTimerRef.current = null;
     }
     
-    if (conversationTimeoutRef.current) {
-      clearTimeout(conversationTimeoutRef.current);
-      conversationTimeoutRef.current = null;
-    }
-    
-    // Capture the current recording reference and immediately clear it
+    // Clean up recording
     const currentRecording = recordingRef.current;
     recordingRef.current = null;
     
-    // Clean up any existing recording with enhanced error handling
     if (currentRecording) {
       currentRecording.stopAndUnloadAsync().catch((error) => {
-        // Specifically handle the "Recorder does not exist" error gracefully
         if (error instanceof Error && error.message.includes('Recorder does not exist')) {
           console.log('Recorder was already cleaned up during reset');
         } else {
@@ -819,6 +833,14 @@ export function useAIInterview(): UseAIInterviewReturn {
     if (speechRecognitionRef.current) {
       speechRecognitionRef.current.stop();
       speechRecognitionRef.current = null;
+    }
+    
+    // Clean up media recorder
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
     }
     
     // Clean up speech synthesis
@@ -837,11 +859,14 @@ export function useAIInterview(): UseAIInterviewReturn {
     setFeedback(null);
     setIsRecording(false);
     isRecordingRef.current = false;
-    isProcessingResponseRef.current = false;
     setIsPlaying(false);
     setIsProcessing(false);
     setInterviewStarted(false);
-    setConversationState('waiting_for_question');
+    setConversationState('idle');
+    setConversationHistory([]);
+    setInterviewTimeRemaining(600);
+    setCurrentTranscript('');
+    aiService.clearConversationHistory();
   }, [stopPlaying]);
 
   return {
@@ -856,6 +881,9 @@ export function useAIInterview(): UseAIInterviewReturn {
     permissionsGranted,
     interviewStarted,
     conversationState,
+    conversationHistory,
+    interviewTimeRemaining,
+    currentTranscript,
     startInterview,
     nextQuestion,
     previousQuestion,
