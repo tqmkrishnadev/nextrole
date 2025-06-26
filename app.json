@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Next-Role.AI",
+    "slug": "next-role-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "next-role-ai",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nextrole.ai"
+    },
+    "android": {
+      "package": "com.nextrole.ai",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#1a1a1a"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-font", 
+      "expo-web-browser", 
+      "expo-document-picker",
+      [
+        "expo-router",
+        {
+          "origin": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "packagerOpts": {
+      "config": "metro.config.js"
+    },
+    "developer": {
+      "tool": "expo-cli"
+    }
+  }
+}
