@@ -25,7 +25,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer } from 'lucide-react-native';
+import { Mic, Video, Brain, Play, Pause, Volume2, Settings, Star, Clock, Users, TrendingUp, Award, Zap, ArrowRight, ArrowLeft, Square, RotateCcw, MessageSquare, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Target, BookOpen, Send, Shield, Loader, Timer } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
 
 const { width, height } = Dimensions.get('window');
