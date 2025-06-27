@@ -16,7 +16,7 @@ export interface UseAIInterviewReturn {
   // Actions
   startInterview: (type: 'behavioral' | 'technical' | 'leadership') => Promise<void>;
   startRecording: () => Promise<void>;
-  stopRecording: () => void;
+  stopRecording: () => void;wai
   finishInterview: () => Promise<void>;
   resetInterview: () => void;
 }
