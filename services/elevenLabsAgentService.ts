@@ -36,6 +36,7 @@ class ElevenLabsAgentService {
   private recording: Audio.Recording | null = null;
   private sound: Audio.Sound | null = null;
   private isRecordingPrepared = false;
+  private isPreparingRecording = false;
 
   static getInstance(): ElevenLabsAgentService {
     if (!ElevenLabsAgentService.instance) {
@@ -148,16 +149,7 @@ class ElevenLabsAgentService {
     try {
       // Set up audio mode for mobile
       if (Platform.OS !== 'web') {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-          staysActiveInBackground: false,
-        });
-
-        // Pre-prepare recording to avoid "recorder not prepared" error
-        await this.prepareRecording();
+        await this.setupMobileAudio();
       }
 
       // Test microphone access
@@ -232,25 +224,91 @@ class ElevenLabsAgentService {
     }
   }
 
-  private async prepareRecording(): Promise<void> {
-    if (Platform.OS === 'web' || this.isRecordingPrepared) {
+  private async setupMobileAudio(): Promise<void> {
+    try {
+      console.log('Setting up mobile audio...');
+      
+      // Set audio mode first
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+
+      console.log('Mobile audio mode set successfully');
+    } catch (error) {
+      console.error('Error setting up mobile audio:', error);
+      throw error;
+    }
+  }
+
+  private async ensureRecordingPrepared(): Promise<void> {
+    if (Platform.OS === 'web') {
+      return; // No preparation needed for web
+    }
+
+    // Prevent multiple simultaneous preparation attempts
+    if (this.isPreparingRecording) {
+      console.log('Recording preparation already in progress, waiting...');
+      // Wait for current preparation to complete
+      while (this.isPreparingRecording) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
       return;
     }
 
+    if (this.isRecordingPrepared && this.recording) {
+      try {
+        const status = await this.recording.getStatusAsync();
+        if (status.canRecord) {
+          console.log('Recording already prepared and ready');
+          return;
+        }
+      } catch (error) {
+        console.log('Error checking recording status, will re-prepare:', error);
+      }
+    }
+
+    await this.prepareRecording();
+  }
+
+  private async prepareRecording(): Promise<void> {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
+    if (this.isPreparingRecording) {
+      console.log('Recording preparation already in progress');
+      return;
+    }
+
+    this.isPreparingRecording = true;
+
     try {
-      console.log('Pre-preparing recording for mobile...');
+      console.log('Preparing recording for mobile...');
       
       // Clean up any existing recording first
       if (this.recording) {
         try {
-          await this.recording.stopAndUnloadAsync();
+          const status = await this.recording.getStatusAsync();
+          if (status.isRecording) {
+            await this.recording.stopAndUnloadAsync();
+          } else {
+            await this.recording.stopAndUnloadAsync();
+          }
         } catch (error) {
-          console.log('No active recording to stop');
+          console.log('Error cleaning up existing recording:', error);
         }
         this.recording = null;
+        this.isRecordingPrepared = false;
       }
 
-      // Create and prepare a new recording
+      // Wait a moment for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Create a new recording instance
       this.recording = new Audio.Recording();
       
       const recordingOptions = {
@@ -270,17 +328,40 @@ class ElevenLabsAgentService {
           sampleRate: 16000,
           numberOfChannels: 1,
           bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
         },
       };
 
+      // Prepare the recording
       await this.recording.prepareToRecordAsync(recordingOptions);
+      
+      // Verify it's actually prepared
+      const status = await this.recording.getStatusAsync();
+      if (!status.canRecord) {
+        throw new Error('Recording preparation failed - cannot record');
+      }
+
       this.isRecordingPrepared = true;
       console.log('Recording prepared successfully');
     } catch (error) {
       console.error('Error preparing recording:', error);
-      this.recording = null;
+      
+      // Clean up on error
+      if (this.recording) {
+        try {
+          await this.recording.stopAndUnloadAsync();
+        } catch (cleanupError) {
+          console.error('Error cleaning up failed recording:', cleanupError);
+        }
+        this.recording = null;
+      }
+      
       this.isRecordingPrepared = false;
       throw error;
+    } finally {
+      this.isPreparingRecording = false;
     }
   }
 
@@ -547,11 +628,12 @@ class ElevenLabsAgentService {
           errorMessage = 'Microphone access denied. Please allow microphone permissions.';
         } else if (error.name === 'NotFoundError') {
           errorMessage = 'No microphone found. Please connect a microphone.';
-        } else if (error.message.includes('recorder not prepared')) {
+        } else if (error.message.includes('recorder not prepared') || error.message.includes('Prepare encountered an error')) {
           errorMessage = 'Recording not ready. Please try again.';
           // Try to re-prepare recording
           if (Platform.OS !== 'web') {
             try {
+              console.log('Attempting to re-prepare recording...');
               await this.prepareRecording();
             } catch (prepError) {
               console.error('Error re-preparing recording:', prepError);
@@ -627,31 +709,45 @@ class ElevenLabsAgentService {
 
   private async startRecordingMobile(): Promise<boolean> {
     try {
-      // Ensure we have a prepared recording
+      console.log('Starting mobile recording...');
+      
+      // Ensure recording is prepared
+      await this.ensureRecordingPrepared();
+
       if (!this.recording || !this.isRecordingPrepared) {
-        console.log('Recording not prepared, preparing now...');
-        await this.prepareRecording();
+        throw new Error('Recording not prepared after preparation attempt');
       }
 
-      if (!this.recording) {
-        throw new Error('Failed to prepare recording');
-      }
-
-      // Check recording status before starting
+      // Double-check recording status
       const status = await this.recording.getStatusAsync();
       console.log('Recording status before start:', status);
 
       if (!status.canRecord) {
-        console.log('Recording cannot record, re-preparing...');
+        console.log('Recording cannot record, attempting fresh preparation...');
+        
+        // Force a fresh preparation
+        this.isRecordingPrepared = false;
         await this.prepareRecording();
         
         if (!this.recording) {
-          throw new Error('Failed to re-prepare recording');
+          throw new Error('Failed to prepare recording after retry');
+        }
+        
+        const retryStatus = await this.recording.getStatusAsync();
+        if (!retryStatus.canRecord) {
+          throw new Error('Recording still cannot record after retry');
         }
       }
 
       // Start recording
+      console.log('Attempting to start recording...');
       await this.recording.startAsync();
+      
+      // Verify recording started
+      const recordingStatus = await this.recording.getStatusAsync();
+      if (!recordingStatus.isRecording) {
+        throw new Error('Recording failed to start');
+      }
       
       this.isRecording = true;
       this.updateState({ isUserSpeaking: true });
@@ -661,16 +757,18 @@ class ElevenLabsAgentService {
     } catch (error) {
       console.error('Error starting mobile recording:', error);
       
-      // Clean up and reset
-      this.recording = null;
-      this.isRecordingPrepared = false;
-      
-      // Try to re-prepare for next time
-      try {
-        await this.prepareRecording();
-      } catch (prepError) {
-        console.error('Error re-preparing after failed start:', prepError);
+      // Clean up and reset on error
+      if (this.recording) {
+        try {
+          await this.recording.stopAndUnloadAsync();
+        } catch (cleanupError) {
+          console.error('Error cleaning up failed recording:', cleanupError);
+        }
+        this.recording = null;
       }
+      
+      this.isRecordingPrepared = false;
+      this.isRecording = false;
       
       throw error;
     }
@@ -727,12 +825,14 @@ class ElevenLabsAgentService {
         this.recording = null;
         this.isRecordingPrepared = false;
         
-        // Pre-prepare for next recording
+        // Pre-prepare for next recording in background
         setTimeout(() => {
-          this.prepareRecording().catch(error => {
-            console.error('Error pre-preparing next recording:', error);
-          });
-        }, 100);
+          if (!this.isRecording && !this.isPreparingRecording) {
+            this.prepareRecording().catch(error => {
+              console.error('Error pre-preparing next recording:', error);
+            });
+          }
+        }, 500);
         
       } catch (error) {
         console.error('Error stopping mobile recording:', error);
@@ -743,19 +843,6 @@ class ElevenLabsAgentService {
     
     this.isRecording = false;
     this.updateState({ isUserSpeaking: false });
-    
-    // Reset audio mode
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true, // Keep recording enabled for next recording
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: false,
-      });
-    } catch (error) {
-      console.error('Error resetting audio mode:', error);
-    }
   }
 
   private async sendAudioToAgent() {
@@ -874,6 +961,7 @@ class ElevenLabsAgentService {
     this.audioChunks = [];
     this.isRecording = false;
     this.isRecordingPrepared = false;
+    this.isPreparingRecording = false;
     this.conversationId = null;
     
     this.updateState({ 
@@ -904,19 +992,15 @@ class ElevenLabsAgentService {
         }
       }
     } else {
-      // For mobile, ensure audio mode is set correctly
+      // For mobile, ensure audio mode is set correctly and prepare recording
       try {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-          staysActiveInBackground: false,
-        });
+        await this.setupMobileAudio();
         console.log('Mobile audio mode enabled');
         
         // Pre-prepare recording for better performance
-        await this.prepareRecording();
+        if (!this.isRecordingPrepared && !this.isPreparingRecording) {
+          await this.prepareRecording();
+        }
       } catch (error) {
         console.error('Error enabling mobile audio:', error);
       }
