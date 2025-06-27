@@ -21,9 +21,10 @@ import Animated, {
   Extrapolate,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Mic, MicOff, RotateCcw, Brain, Clock, MessageCircle, User, Bot, Award, TrendingUp, Target, Zap, Volume2, VolumeX } from 'lucide-react-native';
+import { Mic, MicOff, RotateCcw, Brain, Clock, MessageCircle, User, Bot, Award, TrendingUp, Target, Zap, Volume2, VolumeX, Smartphone, Globe } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
 import { AuthGuard } from '@/components/AuthGuard';
+import ElevenLabsAgentService from '@/services/elevenLabsAgentService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -131,16 +132,12 @@ function InterviewContent() {
   } = useAIInterview();
 
   const handleStartInterview = useCallback(async (type: 'behavioral' | 'technical' | 'leadership') => {
-    if (Platform.OS !== 'web') {
-      Alert.alert(
-        'Platform Not Supported',
-        'ElevenLabs Agents are currently only supported on web browsers. Please use the web version of the app.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
     setSelectedType(type);
+    
+    // Enable audio playback for mobile devices
+    const agentService = ElevenLabsAgentService.getInstance();
+    await agentService.enableAudioPlayback();
+    
     await startInterview(type);
   }, [startInterview]);
 
@@ -243,13 +240,17 @@ function InterviewContent() {
           </View>
         </View>
 
-        {Platform.OS !== 'web' && (
-          <View style={styles.platformWarning}>
-            <Text style={styles.platformWarningText}>
-              ⚠️ ElevenLabs Agents are currently only supported on web browsers
-            </Text>
+        {/* Platform Support Info */}
+        <View style={styles.platformInfo}>
+          <View style={styles.platformSupport}>
+            <Globe color="#4ecdc4" size={16} strokeWidth={2} />
+            <Text style={styles.platformSupportText}>Web Browser</Text>
           </View>
-        )}
+          <View style={styles.platformSupport}>
+            <Smartphone color="#4ecdc4" size={16} strokeWidth={2} />
+            <Text style={styles.platformSupportText}>Mobile App</Text>
+          </View>
+        </View>
       </View>
     );
   }
@@ -273,6 +274,11 @@ function InterviewContent() {
       {error && (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
+          {error.includes('Microphone') && (
+            <Text style={styles.errorHint}>
+              Please allow microphone access in your browser settings and refresh the page.
+            </Text>
+          )}
         </View>
       )}
 
@@ -312,7 +318,7 @@ function InterviewContent() {
           <Text style={styles.recordingLabel}>
             {isUserSpeaking ? 'Recording your response...' : 
              isAgentSpeaking ? 'AI is speaking, please wait...' :
-             'Tap and hold to speak'}
+             Platform.OS === 'web' ? 'Tap and hold to speak' : 'Tap and hold to speak'}
           </Text>
 
           <View style={styles.recordingControls}>
@@ -342,6 +348,12 @@ function InterviewContent() {
           <Text style={styles.recordingHint}>
             {isConnected ? 'Hold to speak, release to send' : 'Waiting for connection...'}
           </Text>
+          
+          {Platform.OS !== 'web' && (
+            <Text style={styles.mobileHint}>
+              📱 Make sure to allow microphone permissions when prompted
+            </Text>
+          )}
         </View>
 
         <View style={styles.navigationControls}>
@@ -503,19 +515,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
-  platformWarning: {
-    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 193, 7, 0.3)',
-    borderRadius: 12,
-    padding: 16,
+  platformInfo: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
     marginTop: 20,
+    paddingVertical: 16,
+    backgroundColor: 'rgba(78, 205, 196, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(78, 205, 196, 0.2)',
   },
-  platformWarningText: {
-    fontSize: 14,
+  platformSupport: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  platformSupportText: {
+    fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: '#ffc107',
-    textAlign: 'center',
+    color: '#4ecdc4',
   },
 
   // Interview Screen Styles
@@ -580,6 +599,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#ff6b6b',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  errorHint: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 107, 107, 0.8)',
     textAlign: 'center',
   },
 
@@ -688,6 +714,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: 'rgba(255, 255, 255, 0.6)',
     textAlign: 'center',
+  },
+  mobileHint: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'center',
+    marginTop: 4,
   },
   navigationControls: {
     flexDirection: 'row',
