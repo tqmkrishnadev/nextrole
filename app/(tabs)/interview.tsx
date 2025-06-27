@@ -21,7 +21,7 @@ import Animated, {
   Extrapolate,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Mic, MicOff, Play, Pause, RotateCcw, Send, Brain, Clock, MessageCircle, User, Bot, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Award, TrendingUp, Target, Zap } from 'lucide-react-native';
+import { Mic, MicOff, RotateCcw, Brain, Clock, MessageCircle, User, Bot, Award, TrendingUp, Target, Zap, Volume2, VolumeX } from 'lucide-react-native';
 import { useAIInterview } from '@/hooks/useAIInterview';
 import { AuthGuard } from '@/components/AuthGuard';
 
@@ -29,7 +29,7 @@ const { width, height } = Dimensions.get('window');
 
 // Memoized conversation item component to prevent unnecessary re-renders
 const ConversationItem = React.memo(({ item, index }: { item: any; index: number }) => {
-  const isAI = item.type === 'ai_question' || item.type === 'ai_followup';
+  const isAI = item.type === 'agent';
   const itemOpacity = useSharedValue(0);
   const itemTranslateY = useSharedValue(20);
 
@@ -61,12 +61,9 @@ const ConversationItem = React.memo(({ item, index }: { item: any; index: number
           <Text style={styles.messageSender}>
             {isAI ? 'AI Interviewer' : 'You'}
           </Text>
-          {item.duration && (
-            <View style={styles.durationBadge}>
-              <Clock color="rgba(255, 255, 255, 0.6)" size={12} />
-              <Text style={styles.durationText}>{item.duration}s</Text>
-            </View>
-          )}
+          <Text style={styles.messageTime}>
+            {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
         </View>
         <Text style={styles.messageText}>{item.content}</Text>
       </View>
@@ -116,64 +113,44 @@ const ConversationList = React.memo(({ conversationHistory }: { conversationHist
 
 function InterviewContent() {
   const [selectedType, setSelectedType] = useState<'behavioral' | 'technical' | 'leadership' | null>(null);
-  const [manualResponse, setManualResponse] = useState('');
-  const [showManualInput, setShowManualInput] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
 
-  // Use the AI interview hook
+  // Use the AI interview hook with ElevenLabs Agent integration
   const {
-    currentQuestion,
-    currentQuestionIndex,
-    totalQuestions,
-    isRecording,
-    isPlaying,
-    isProcessing,
-    responses,
-    feedback,
-    permissionsGranted,
-    interviewStarted,
-    conversationState,
+    isConnected,
+    isAgentSpeaking,
+    isUserSpeaking,
     conversationHistory,
+    interviewStarted,
     interviewTimeRemaining,
-    currentTranscript,
+    error,
     startInterview,
-    nextQuestion,
-    previousQuestion,
     startRecording,
     stopRecording,
-    playQuestion,
-    stopPlaying,
-    submitResponse,
     finishInterview,
     resetInterview,
-    requestPermissions,
   } = useAIInterview();
 
   const handleStartInterview = useCallback(async (type: 'behavioral' | 'technical' | 'leadership') => {
+    if (Platform.OS !== 'web') {
+      Alert.alert(
+        'Platform Not Supported',
+        'ElevenLabs Agents are currently only supported on web browsers. Please use the web version of the app.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     setSelectedType(type);
-    setShowFeedback(false);
     await startInterview(type);
   }, [startInterview]);
 
-  const handleSubmitManualResponse = useCallback(() => {
-    if (manualResponse.trim()) {
-      submitResponse(manualResponse.trim());
-      setManualResponse('');
-      setShowManualInput(false);
-    }
-  }, [manualResponse, submitResponse]);
-
   const handleFinishInterview = useCallback(async () => {
     await finishInterview();
-    setShowFeedback(true);
   }, [finishInterview]);
 
   const handleResetInterview = useCallback(() => {
     resetInterview();
     setSelectedType(null);
-    setManualResponse('');
-    setShowManualInput(false);
-    setShowFeedback(false);
   }, [resetInterview]);
 
   // Memoize the interview type cards to prevent unnecessary re-renders
@@ -205,7 +182,7 @@ function InterviewContent() {
   ], []);
 
   // Show interview type selection
-  if (!interviewStarted && !showFeedback) {
+  if (!interviewStarted) {
     return (
       <View style={styles.selectionContainer}>
         <View style={styles.header}>
@@ -219,7 +196,7 @@ function InterviewContent() {
           </View>
           <Text style={styles.title}>AI Mock Interview</Text>
           <Text style={styles.subtitle}>
-            Choose your interview type and practice with our AI interviewer
+            Choose your interview type and practice with our AI interviewer powered by ElevenLabs
           </Text>
         </View>
 
@@ -254,90 +231,25 @@ function InterviewContent() {
         <View style={styles.features}>
           <View style={styles.feature}>
             <Zap color="#f093fb" size={20} strokeWidth={2} />
-            <Text style={styles.featureText}>AI-Powered Questions</Text>
+            <Text style={styles.featureText}>Real-time AI Conversation</Text>
           </View>
           <View style={styles.feature}>
             <Brain color="#667eea" size={20} strokeWidth={2} />
-            <Text style={styles.featureText}>Real-time Feedback</Text>
+            <Text style={styles.featureText}>Natural Voice Interaction</Text>
           </View>
           <View style={styles.feature}>
             <Award color="#4ecdc4" size={20} strokeWidth={2} />
-            <Text style={styles.featureText}>Performance Analysis</Text>
+            <Text style={styles.featureText}>Personalized Questions</Text>
           </View>
         </View>
-      </View>
-    );
-  }
 
-  // Show feedback screen
-  if (showFeedback && feedback) {
-    return (
-      <View style={styles.feedbackContainer}>
-        <ScrollView 
-          style={styles.feedbackScroll}
-          contentContainerStyle={styles.feedbackContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.feedbackHeader}>
-            <View style={styles.scoreContainer}>
-              <Text style={styles.scoreValue}>{feedback.overallScore}</Text>
-              <Text style={styles.scoreLabel}>Overall Score</Text>
-            </View>
-            <Text style={styles.feedbackTitle}>Interview Complete!</Text>
-            <Text style={styles.feedbackSubtitle}>
-              Here's your detailed performance analysis
+        {Platform.OS !== 'web' && (
+          <View style={styles.platformWarning}>
+            <Text style={styles.platformWarningText}>
+              ⚠️ ElevenLabs Agents are currently only supported on web browsers
             </Text>
           </View>
-
-          {/* Strengths */}
-          <View style={styles.feedbackSection}>
-            <View style={styles.sectionHeader}>
-              <CheckCircle color="#4ecdc4" size={20} strokeWidth={2} />
-              <Text style={styles.sectionTitle}>Strengths</Text>
-            </View>
-            {feedback.strengths.map((strength, index) => (
-              <View key={index} style={styles.feedbackItem}>
-                <Text style={styles.feedbackItemText}>{strength}</Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Areas for Improvement */}
-          <View style={styles.feedbackSection}>
-            <View style={styles.sectionHeader}>
-              <TrendingUp color="#f093fb" size={20} strokeWidth={2} />
-              <Text style={styles.sectionTitle}>Areas for Improvement</Text>
-            </View>
-            {feedback.improvements.map((improvement, index) => (
-              <View key={index} style={styles.feedbackItem}>
-                <Text style={styles.feedbackItemText}>{improvement}</Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Recommendations */}
-          <View style={styles.feedbackSection}>
-            <View style={styles.sectionHeader}>
-              <Target color="#667eea" size={20} strokeWidth={2} />
-              <Text style={styles.sectionTitle}>Recommendations</Text>
-            </View>
-            {feedback.recommendations.map((recommendation, index) => (
-              <View key={index} style={styles.feedbackItem}>
-                <Text style={styles.feedbackItemText}>{recommendation}</Text>
-              </View>
-            ))}
-          </View>
-
-          <TouchableOpacity style={styles.restartButton} onPress={handleResetInterview}>
-            <LinearGradient
-              colors={['#667eea', '#764ba2']}
-              style={styles.restartButtonGradient}
-            >
-              <RotateCcw color="white" size={20} strokeWidth={2} />
-              <Text style={styles.restartButtonText}>Start New Interview</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
+        )}
       </View>
     );
   }
@@ -345,164 +257,94 @@ function InterviewContent() {
   // Show interview screen
   return (
     <View style={styles.interviewContainer}>
-      {/* Header with timer and progress */}
+      {/* Header with timer and connection status */}
       <View style={styles.interviewHeader}>
-        <View style={styles.progressContainer}>
-          <Text style={styles.progressText}>
-            Question {currentQuestionIndex + 1} of {totalQuestions}
+        <View style={styles.connectionStatus}>
+          <View style={[styles.connectionDot, { backgroundColor: isConnected ? '#4ecdc4' : '#ff6b6b' }]} />
+          <Text style={styles.connectionText}>
+            {isConnected ? 'Connected to AI Agent' : 'Connecting...'}
           </Text>
-          <View style={styles.progressBar}>
-            <View 
-              style={[
-                styles.progressFill, 
-                { width: `${((currentQuestionIndex + 1) / totalQuestions) * 100}%` }
-              ]} 
-            />
-          </View>
         </View>
         
         <InterviewTimer timeRemaining={interviewTimeRemaining} />
       </View>
 
-      {/* Current Question */}
-      {currentQuestion && (
-        <View style={styles.questionContainer}>
-          <BlurView intensity={20} style={styles.questionBlur}>
-            <LinearGradient
-              colors={['rgba(102, 126, 234, 0.1)', 'rgba(118, 75, 162, 0.1)']}
-              style={styles.questionGradient}
-            >
-              <View style={styles.questionContent}>
-                <View style={styles.questionHeader}>
-                  <Bot color="#667eea" size={24} strokeWidth={2} />
-                  <Text style={styles.questionLabel}>Current Question</Text>
-                </View>
-                <Text style={styles.questionText}>{currentQuestion.question}</Text>
-                
-                <View style={styles.questionActions}>
-                  <TouchableOpacity 
-                    style={styles.playButton}
-                    onPress={isPlaying ? stopPlaying : playQuestion}
-                  >
-                    {isPlaying ? (
-                      <Pause color="#667eea" size={20} strokeWidth={2} />
-                    ) : (
-                      <Play color="#667eea" size={20} strokeWidth={2} />
-                    )}
-                    <Text style={styles.playButtonText}>
-                      {isPlaying ? 'Stop' : 'Play'} Question
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </LinearGradient>
-          </BlurView>
+      {/* Error Display */}
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
+
+      {/* Current Status */}
+      <View style={styles.statusContainer}>
+        <BlurView intensity={20} style={styles.statusBlur}>
+          <LinearGradient
+            colors={['rgba(102, 126, 234, 0.1)', 'rgba(118, 75, 162, 0.1)']}
+            style={styles.statusGradient}
+          >
+            <View style={styles.statusContent}>
+              <View style={styles.statusHeader}>
+                <Bot color="#667eea" size={24} strokeWidth={2} />
+                <Text style={styles.statusLabel}>Interview Status</Text>
+              </View>
+              <Text style={styles.statusText}>
+                {isAgentSpeaking ? 'AI is speaking...' :
+                 isUserSpeaking ? 'Listening to your response...' :
+                 isConnected ? 'Ready for your response' :
+                 'Connecting to AI agent...'}
+              </Text>
+              
+              {isAgentSpeaking && (
+                <View style={styles.speakingIndicator}>
+                  <Volume2 color="#4ecdc4" size={20} strokeWidth={2} />
+                  <Text style={styles.speakingText}>Agent is speaking</Text>
+                </View>
+              )}
+            </View>
+          </LinearGradient>
+        </BlurView>
+      </View>
 
       {/* Recording Controls */}
       <View style={styles.controlsContainer}>
         <View style={styles.recordingSection}>
           <Text style={styles.recordingLabel}>
-            {conversationState === 'ai_speaking' ? 'AI is speaking...' :
-             conversationState === 'user_speaking' ? 'Recording your response...' :
-             conversationState === 'processing_response' ? 'Processing...' :
-             conversationState === 'generating_followup' ? 'Generating follow-up...' :
-             'Ready for your response'}
+            {isUserSpeaking ? 'Recording your response...' : 
+             isAgentSpeaking ? 'AI is speaking, please wait...' :
+             'Tap and hold to speak'}
           </Text>
-          
-          {currentTranscript && (
-            <View style={styles.transcriptContainer}>
-              <Text style={styles.transcriptText}>{currentTranscript}</Text>
-            </View>
-          )}
 
           <View style={styles.recordingControls}>
             <TouchableOpacity
               style={[
                 styles.recordButton,
-                isRecording && styles.recordButtonActive,
-                (conversationState !== 'waiting_for_response' && !isRecording) && styles.recordButtonDisabled
+                isUserSpeaking && styles.recordButtonActive,
+                (isAgentSpeaking || !isConnected) && styles.recordButtonDisabled
               ]}
-              onPress={isRecording ? stopRecording : startRecording}
-              disabled={conversationState !== 'waiting_for_response' && !isRecording}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+              disabled={isAgentSpeaking || !isConnected}
             >
               <LinearGradient
-                colors={isRecording ? ['#ff6b6b', '#ee5a52'] : ['#4ecdc4', '#44a08d']}
+                colors={isUserSpeaking ? ['#ff6b6b', '#ee5a52'] : ['#4ecdc4', '#44a08d']}
                 style={styles.recordButtonGradient}
               >
-                {isRecording ? (
+                {isUserSpeaking ? (
                   <MicOff color="white" size={24} strokeWidth={2} />
                 ) : (
                   <Mic color="white" size={24} strokeWidth={2} />
                 )}
               </LinearGradient>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.manualInputButton}
-              onPress={() => setShowManualInput(!showManualInput)}
-            >
-              <Text style={styles.manualInputButtonText}>Type Response</Text>
-            </TouchableOpacity>
           </View>
 
-          {showManualInput && (
-            <View style={styles.manualInputContainer}>
-              <Text style={styles.manualInputLabel}>Type your response:</Text>
-              <View style={styles.manualInputWrapper}>
-                <Text 
-                  style={styles.manualInput}
-                  onPress={() => {
-                    if (Platform.OS === 'web') {
-                      const response = prompt('Enter your response:');
-                      if (response) {
-                        setManualResponse(response);
-                      }
-                    } else {
-                      Alert.prompt(
-                        'Your Response',
-                        'Enter your response:',
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { 
-                            text: 'Submit', 
-                            onPress: (text) => {
-                              if (text) {
-                                setManualResponse(text);
-                              }
-                            }
-                          }
-                        ],
-                        'plain-text',
-                        manualResponse
-                      );
-                    }
-                  }}
-                >
-                  {manualResponse || 'Tap to enter your response...'}
-                </Text>
-                <TouchableOpacity
-                  style={styles.submitButton}
-                  onPress={handleSubmitManualResponse}
-                  disabled={!manualResponse.trim()}
-                >
-                  <Send color={manualResponse.trim() ? "#667eea" : "rgba(255, 255, 255, 0.3)"} size={20} strokeWidth={2} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+          <Text style={styles.recordingHint}>
+            {isConnected ? 'Hold to speak, release to send' : 'Waiting for connection...'}
+          </Text>
         </View>
 
         <View style={styles.navigationControls}>
-          <TouchableOpacity
-            style={[styles.navButton, currentQuestionIndex === 0 && styles.navButtonDisabled]}
-            onPress={previousQuestion}
-            disabled={currentQuestionIndex === 0}
-          >
-            <Text style={styles.navButtonText}>Previous</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.finishButton}
             onPress={handleFinishInterview}
@@ -511,11 +353,10 @@ function InterviewContent() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.navButton, currentQuestionIndex >= totalQuestions - 1 && styles.navButtonDisabled]}
-            onPress={nextQuestion}
-            disabled={currentQuestionIndex >= totalQuestions - 1}
+            style={styles.resetButton}
+            onPress={handleResetInterview}
           >
-            <Text style={styles.navButtonText}>Next</Text>
+            <RotateCcw color="rgba(255, 255, 255, 0.8)" size={20} strokeWidth={2} />
           </TouchableOpacity>
         </View>
       </View>
@@ -525,6 +366,7 @@ function InterviewContent() {
         <View style={styles.conversationHeader}>
           <MessageCircle color="#667eea" size={20} strokeWidth={2} />
           <Text style={styles.conversationTitle}>Conversation</Text>
+          <Text style={styles.conversationCount}>({conversationHistory.length})</Text>
         </View>
         
         <ConversationList conversationHistory={conversationHistory} />
@@ -661,6 +503,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
+  platformWarning: {
+    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.3)',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 20,
+  },
+  platformWarningText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#ffc107',
+    textAlign: 'center',
+  },
 
   // Interview Screen Styles
   interviewContainer: {
@@ -675,26 +531,21 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     paddingHorizontal: 4,
   },
-  progressContainer: {
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
-    marginRight: 16,
   },
-  progressText: {
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  connectionText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 8,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#667eea',
-    borderRadius: 2,
   },
   timerContainer: {
     flexDirection: 'row',
@@ -716,8 +567,24 @@ const styles = StyleSheet.create({
     color: '#ff6b6b',
   },
 
-  // Question Styles
-  questionContainer: {
+  // Error Styles
+  errorContainer: {
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  errorText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#ff6b6b',
+    textAlign: 'center',
+  },
+
+  // Status Styles
+  statusContainer: {
     marginBottom: 20,
     borderRadius: 20,
     overflow: 'hidden',
@@ -727,54 +594,49 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
-  questionBlur: {
+  statusBlur: {
     borderRadius: 20,
     overflow: 'hidden',
   },
-  questionGradient: {
+  statusGradient: {
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  questionContent: {
+  statusContent: {
     padding: 20,
   },
-  questionHeader: {
+  statusHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  questionLabel: {
+  statusLabel: {
     fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: 'white',
     marginLeft: 8,
   },
-  questionText: {
-    fontSize: 16,
+  statusText: {
+    fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 24,
-    marginBottom: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    lineHeight: 20,
   },
-  questionActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  playButton: {
+  speakingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(102, 126, 234, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(102, 126, 234, 0.3)',
+    marginTop: 12,
+    backgroundColor: 'rgba(78, 205, 196, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
   },
-  playButtonText: {
-    fontSize: 14,
+  speakingText: {
+    fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: '#667eea',
+    color: '#4ecdc4',
     marginLeft: 6,
   },
 
@@ -793,27 +655,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  transcriptContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    minHeight: 60,
-    justifyContent: 'center',
-  },
-  transcriptText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.9)',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
   recordingControls: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    marginBottom: 12,
   },
   recordButton: {
     width: 80,
@@ -839,69 +683,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  manualInputButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  manualInputButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  manualInputContainer: {
-    marginTop: 20,
-    width: '100%',
-  },
-  manualInputLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 8,
-  },
-  manualInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  manualInput: {
-    flex: 1,
-    fontSize: 16,
+  recordingHint: {
+    fontSize: 12,
     fontFamily: 'Inter-Regular',
-    color: 'white',
-    padding: 16,
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  submitButton: {
-    padding: 16,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
   },
   navigationControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  navButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  navButtonDisabled: {
-    opacity: 0.5,
-  },
-  navButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.8)',
   },
   finishButton: {
     backgroundColor: 'rgba(255, 107, 107, 0.2)',
@@ -910,11 +701,21 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
+    flex: 1,
+    marginRight: 12,
   },
   finishButtonText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#ff6b6b',
+    textAlign: 'center',
+  },
+  resetButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
 
   // Conversation Styles
@@ -938,6 +739,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: 'white',
     marginLeft: 8,
+    flex: 1,
+  },
+  conversationCount: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   conversationList: {
     flex: 1,
@@ -989,121 +796,15 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     flex: 1,
   },
-  durationBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  durationText: {
+  messageTime: {
     fontSize: 10,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginLeft: 2,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   messageText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: 'rgba(255, 255, 255, 0.9)',
     lineHeight: 20,
-  },
-
-  // Feedback Screen Styles
-  feedbackContainer: {
-    flex: 1,
-  },
-  feedbackScroll: {
-    flex: 1,
-  },
-  feedbackContent: {
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 100,
-  },
-  feedbackHeader: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  scoreContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  scoreValue: {
-    fontSize: 48,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: '#4ecdc4',
-  },
-  scoreLabel: {
-    fontSize: 16,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginTop: 4,
-  },
-  feedbackTitle: {
-    fontSize: 28,
-    fontFamily: 'SpaceGrotesk-Bold',
-    color: 'white',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  feedbackSubtitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-Medium',
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  feedbackSection: {
-    marginBottom: 32,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk-SemiBold',
-    color: 'white',
-    marginLeft: 8,
-  },
-  feedbackItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  feedbackItemText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 20,
-  },
-  restartButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-    marginTop: 20,
-  },
-  restartButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-  },
-  restartButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: 'white',
-    marginLeft: 8,
   },
 });
