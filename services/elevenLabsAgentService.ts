@@ -35,6 +35,7 @@ class ElevenLabsAgentService {
   // React Native specific properties
   private recording: Audio.Recording | null = null;
   private sound: Audio.Sound | null = null;
+  private isRecordingPrepared = false;
 
   static getInstance(): ElevenLabsAgentService {
     if (!ElevenLabsAgentService.instance) {
@@ -154,6 +155,9 @@ class ElevenLabsAgentService {
           playThroughEarpieceAndroid: false,
           staysActiveInBackground: false,
         });
+
+        // Pre-prepare recording to avoid "recorder not prepared" error
+        await this.prepareRecording();
       }
 
       // Test microphone access
@@ -167,9 +171,6 @@ class ElevenLabsAgentService {
           }
         });
         stream.getTracks().forEach(track => track.stop());
-      } else {
-        // For mobile, we'll test recording when we actually start recording
-        console.log('Mobile platform detected, will test recording on demand');
       }
 
       console.log('Microphone access confirmed');
@@ -228,6 +229,58 @@ class ElevenLabsAgentService {
       
       this.updateState({ error: errorMessage });
       return false;
+    }
+  }
+
+  private async prepareRecording(): Promise<void> {
+    if (Platform.OS === 'web' || this.isRecordingPrepared) {
+      return;
+    }
+
+    try {
+      console.log('Pre-preparing recording for mobile...');
+      
+      // Clean up any existing recording first
+      if (this.recording) {
+        try {
+          await this.recording.stopAndUnloadAsync();
+        } catch (error) {
+          console.log('No active recording to stop');
+        }
+        this.recording = null;
+      }
+
+      // Create and prepare a new recording
+      this.recording = new Audio.Recording();
+      
+      const recordingOptions = {
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.m4a',
+          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+        },
+      };
+
+      await this.recording.prepareToRecordAsync(recordingOptions);
+      this.isRecordingPrepared = true;
+      console.log('Recording prepared successfully');
+    } catch (error) {
+      console.error('Error preparing recording:', error);
+      this.recording = null;
+      this.isRecordingPrepared = false;
+      throw error;
     }
   }
 
@@ -494,6 +547,16 @@ class ElevenLabsAgentService {
           errorMessage = 'Microphone access denied. Please allow microphone permissions.';
         } else if (error.name === 'NotFoundError') {
           errorMessage = 'No microphone found. Please connect a microphone.';
+        } else if (error.message.includes('recorder not prepared')) {
+          errorMessage = 'Recording not ready. Please try again.';
+          // Try to re-prepare recording
+          if (Platform.OS !== 'web') {
+            try {
+              await this.prepareRecording();
+            } catch (prepError) {
+              console.error('Error re-preparing recording:', prepError);
+            }
+          }
         } else {
           errorMessage = error.message;
         }
@@ -564,45 +627,30 @@ class ElevenLabsAgentService {
 
   private async startRecordingMobile(): Promise<boolean> {
     try {
-      // Request permissions
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
-        throw new Error('Microphone permission not granted');
+      // Ensure we have a prepared recording
+      if (!this.recording || !this.isRecordingPrepared) {
+        console.log('Recording not prepared, preparing now...');
+        await this.prepareRecording();
       }
 
-      // Set audio mode for recording
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: false,
-      });
+      if (!this.recording) {
+        throw new Error('Failed to prepare recording');
+      }
 
-      // Create recording
-      this.recording = new Audio.Recording();
-      
-      const recordingOptions = {
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        android: {
-          extension: '.m4a',
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 16000,
-          numberOfChannels: 1,
-          bitRate: 128000,
-        },
-        ios: {
-          extension: '.m4a',
-          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 16000,
-          numberOfChannels: 1,
-          bitRate: 128000,
-        },
-      };
+      // Check recording status before starting
+      const status = await this.recording.getStatusAsync();
+      console.log('Recording status before start:', status);
 
-      await this.recording.prepareToRecordAsync(recordingOptions);
+      if (!status.canRecord) {
+        console.log('Recording cannot record, re-preparing...');
+        await this.prepareRecording();
+        
+        if (!this.recording) {
+          throw new Error('Failed to re-prepare recording');
+        }
+      }
+
+      // Start recording
       await this.recording.startAsync();
       
       this.isRecording = true;
@@ -612,7 +660,18 @@ class ElevenLabsAgentService {
       return true;
     } catch (error) {
       console.error('Error starting mobile recording:', error);
+      
+      // Clean up and reset
       this.recording = null;
+      this.isRecordingPrepared = false;
+      
+      // Try to re-prepare for next time
+      try {
+        await this.prepareRecording();
+      } catch (prepError) {
+        console.error('Error re-preparing after failed start:', prepError);
+      }
+      
       throw error;
     }
   }
@@ -649,18 +708,36 @@ class ElevenLabsAgentService {
   private async stopRecordingMobile() {
     if (this.recording) {
       try {
-        await this.recording.stopAndUnloadAsync();
-        const uri = this.recording.getURI();
+        const status = await this.recording.getStatusAsync();
+        console.log('Recording status before stop:', status);
         
-        // Convert the recorded audio to base64 and send to agent
-        if (uri) {
-          await this.sendMobileAudioToAgent(uri);
+        if (status.isRecording) {
+          await this.recording.stopAndUnloadAsync();
+          const uri = this.recording.getURI();
+          
+          // Convert the recorded audio to base64 and send to agent
+          if (uri) {
+            await this.sendMobileAudioToAgent(uri);
+          }
+        } else {
+          console.log('Recording was not active, just unloading...');
+          await this.recording.stopAndUnloadAsync();
         }
         
         this.recording = null;
+        this.isRecordingPrepared = false;
+        
+        // Pre-prepare for next recording
+        setTimeout(() => {
+          this.prepareRecording().catch(error => {
+            console.error('Error pre-preparing next recording:', error);
+          });
+        }, 100);
+        
       } catch (error) {
         console.error('Error stopping mobile recording:', error);
         this.recording = null;
+        this.isRecordingPrepared = false;
       }
     }
     
@@ -670,7 +747,7 @@ class ElevenLabsAgentService {
     // Reset audio mode
     try {
       await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
+        allowsRecordingIOS: true, // Keep recording enabled for next recording
         playsInSilentModeIOS: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
@@ -796,6 +873,7 @@ class ElevenLabsAgentService {
     this.recording = null;
     this.audioChunks = [];
     this.isRecording = false;
+    this.isRecordingPrepared = false;
     this.conversationId = null;
     
     this.updateState({ 
@@ -829,13 +907,16 @@ class ElevenLabsAgentService {
       // For mobile, ensure audio mode is set correctly
       try {
         await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
+          allowsRecordingIOS: true,
           playsInSilentModeIOS: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
           staysActiveInBackground: false,
         });
         console.log('Mobile audio mode enabled');
+        
+        // Pre-prepare recording for better performance
+        await this.prepareRecording();
       } catch (error) {
         console.error('Error enabling mobile audio:', error);
       }
