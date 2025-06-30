@@ -102,7 +102,7 @@ function InterviewWebView({
   }
 
   // Construct the interview URL
-  const interviewUrl = `/mock-interview?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(interviewType)}`;
+  const interviewUrl = `https://31.97.135.155:5173/`;
 
   const handleNavigationStateChange = (navState: any) => {
     setCanGoBack(navState.canGoBack);
