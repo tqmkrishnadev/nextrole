@@ -12,16 +12,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { 
-  ArrowLeft, 
-  RefreshCw, 
-  ExternalLink, 
-  Globe, 
-  AlertTriangle,
-  Wifi,
-  Shield,
-  Brain
-} from 'lucide-react-native';
+import { ArrowLeft, RefreshCw, ExternalLink, Globe, TriangleAlert as AlertTriangle, Wifi, Shield, Brain } from 'lucide-react-native';
 import { WebView } from 'react-native-webview';
 
 export default function InterviewSessionScreen() {
