@@ -7,8 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Platform,
-  Alert,
-  Linking
+  Alert
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -27,16 +26,15 @@ import {
   Target, 
   Zap, 
   Award, 
-  Globe, 
   Smartphone, 
   ArrowRight,
-  ExternalLink,
+  RefreshCw,
   Shield,
-  Wifi,
-  RefreshCw
+  Wifi
 } from 'lucide-react-native';
 import { AuthGuard } from '@/components/AuthGuard';
 import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
@@ -70,6 +68,7 @@ const interviewTypeCards = [
 
 function InterviewContent() {
   const { user } = useAuth();
+  const router = useRouter();
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
 
   const handleStartInterview = useCallback(async (type: 'behavioral' | 'technical' | 'leadership') => {
@@ -80,44 +79,23 @@ function InterviewContent() {
       setSelectedCard(type);
       
       const userId = user?.id || 'anonymous';
-      const interviewUrl = `https://31.97.135.155:5173/?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(type)}`;
       
-      // Always use external browser for maximum compatibility
-      const supported = await Linking.canOpenURL(interviewUrl);
-      
-      if (supported) {
-        await Linking.openURL(interviewUrl);
-        
-        // Show success message
-        Alert.alert(
-          'Interview Started',
-          'Your AI mock interview has opened in your browser. Complete the interview there and return to the app when finished.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        throw new Error('Cannot open interview URL');
-      }
+      // Navigate to the interview session page with parameters
+      router.push({
+        pathname: '/interview-session',
+        params: {
+          type: type,
+          userId: userId
+        }
+      });
       
     } catch (error) {
       console.error('Error starting interview:', error);
       
-      // Show error with manual URL option
       Alert.alert(
         'Unable to Start Interview',
-        'There was an issue opening the interview. You can manually visit the interview page in your browser.',
+        'There was an issue starting the interview. Please try again.',
         [
-          {
-            text: 'Copy URL',
-            onPress: () => {
-              const interviewUrl = `https://31.97.135.155:5173/?userId=${encodeURIComponent(user?.id || 'anonymous')}&type=${encodeURIComponent(type)}`;
-              // On web, we could copy to clipboard, but for mobile we'll show the URL
-              Alert.alert(
-                'Interview URL',
-                `Please visit this URL in your browser:\n\n${interviewUrl}`,
-                [{ text: 'OK' }]
-              );
-            }
-          },
           {
             text: 'Retry',
             onPress: () => handleStartInterview(type)
@@ -134,7 +112,7 @@ function InterviewContent() {
         setSelectedCard(null);
       }, 1000);
     }
-  }, [user]);
+  }, [user, router]);
 
   // Memoized interview card component
   const InterviewCard = React.memo(({ card }: { card: typeof interviewTypeCards[0] }) => {
@@ -182,8 +160,8 @@ function InterviewContent() {
                       <IconComponent color={card.color} size={24} strokeWidth={2} />
                     </View>
                     <View style={styles.platformIndicator}>
-                      <ExternalLink color={card.color} size={16} strokeWidth={2} />
-                      <Text style={[styles.platformText, { color: card.color }]}>Browser</Text>
+                      <Smartphone color={card.color} size={16} strokeWidth={2} />
+                      <Text style={[styles.platformText, { color: card.color }]}>In-App</Text>
                     </View>
                   </View>
 
@@ -209,7 +187,7 @@ function InterviewContent() {
                   {/* Loading State */}
                   {isSelected && (
                     <View style={styles.cardLoadingOverlay}>
-                      <Text style={styles.cardLoadingText}>Opening in browser...</Text>
+                      <Text style={styles.cardLoadingText}>Opening interview...</Text>
                     </View>
                   )}
                 </View>
@@ -235,7 +213,7 @@ function InterviewContent() {
         </View>
         <Text style={styles.title}>AI Mock Interview</Text>
         <Text style={styles.subtitle}>
-          Choose your interview type. The session will open in your browser for the best experience with voice interaction.
+          Choose your interview type. The session will open in a dedicated interview page with full WebView support.
         </Text>
       </View>
 
@@ -265,20 +243,20 @@ function InterviewContent() {
         </View>
       </View>
 
-      {/* Browser Experience Info */}
-      <View style={styles.browserInfo}>
-        <View style={styles.browserInfoHeader}>
-          <Globe color="#4ecdc4" size={20} strokeWidth={2} />
-          <Text style={styles.browserInfoTitle}>Browser Experience</Text>
+      {/* In-App Experience Info */}
+      <View style={styles.appInfo}>
+        <View style={styles.appInfoHeader}>
+          <Smartphone color="#4ecdc4" size={20} strokeWidth={2} />
+          <Text style={styles.appInfoTitle}>In-App Interview Experience</Text>
         </View>
-        <Text style={styles.browserInfoText}>
-          Your interview will open in your device's browser for optimal performance with ElevenLabs AI agents. This ensures the best audio quality and microphone access for voice interactions.
+        <Text style={styles.appInfoText}>
+          Your interview will open in a dedicated page within the app using WebView technology. This provides a seamless experience while maintaining access to all interview features.
         </Text>
         
-        <View style={styles.browserSupport}>
+        <View style={styles.appSupport}>
           <View style={styles.supportItem}>
-            <Globe color="#4ecdc4" size={16} strokeWidth={2} />
-            <Text style={styles.supportText}>Web Optimized</Text>
+            <Smartphone color="#4ecdc4" size={16} strokeWidth={2} />
+            <Text style={styles.supportText}>Native Integration</Text>
           </View>
           <View style={styles.supportItem}>
             <Mic color="#4ecdc4" size={16} strokeWidth={2} />
@@ -305,7 +283,7 @@ function InterviewContent() {
             <View style={styles.instructionNumber}>
               <Text style={styles.instructionNumberText}>2</Text>
             </View>
-            <Text style={styles.instructionText}>Interview opens in your browser automatically</Text>
+            <Text style={styles.instructionText}>Interview opens in dedicated page within the app</Text>
           </View>
           <View style={styles.instructionItem}>
             <View style={styles.instructionNumber}>
@@ -323,7 +301,7 @@ function InterviewContent() {
             <View style={styles.instructionNumber}>
               <Text style={styles.instructionNumberText}>5</Text>
             </View>
-            <Text style={styles.instructionText}>Return to the app when finished</Text>
+            <Text style={styles.instructionText}>Return to main app when finished</Text>
           </View>
         </View>
       </View>
@@ -338,11 +316,11 @@ function InterviewContent() {
           </View>
           <View style={styles.troubleshootingItem}>
             <Mic color="rgba(255, 255, 255, 0.6)" size={16} strokeWidth={2} />
-            <Text style={styles.troubleshootingText}>Allow microphone permissions in browser</Text>
+            <Text style={styles.troubleshootingText}>Allow microphone permissions when prompted</Text>
           </View>
           <View style={styles.troubleshootingItem}>
             <RefreshCw color="rgba(255, 255, 255, 0.6)" size={16} strokeWidth={2} />
-            <Text style={styles.troubleshootingText}>Refresh browser if audio issues occur</Text>
+            <Text style={styles.troubleshootingText}>Use refresh button if page doesn't load</Text>
           </View>
         </View>
       </View>
@@ -557,8 +535,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
-  // Browser Info Styles
-  browserInfo: {
+  // App Info Styles
+  appInfo: {
     backgroundColor: 'rgba(78, 205, 196, 0.1)',
     borderRadius: 16,
     padding: 20,
@@ -566,25 +544,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(78, 205, 196, 0.2)',
   },
-  browserInfoHeader: {
+  appInfoHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
-  browserInfoTitle: {
+  appInfoTitle: {
     fontSize: 16,
     fontFamily: 'SpaceGrotesk-SemiBold',
     color: '#4ecdc4',
     marginLeft: 8,
   },
-  browserInfoText: {
+  appInfoText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: 'rgba(255, 255, 255, 0.8)',
     lineHeight: 20,
     marginBottom: 16,
   },
-  browserSupport: {
+  appSupport: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     flexWrap: 'wrap',
