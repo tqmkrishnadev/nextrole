@@ -76,7 +76,7 @@ function InterviewContent() {
       
       // Construct the interview URL with query parameters
       const baseUrl = process.env.EXPO_PUBLIC_INTERVIEW_WEB_URL || 'https://31.97.135.155:5173';
-      const interviewUrl = `${baseUrl}/mock-interview?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(type)}`;
+      const interviewUrl = `${baseUrl}`;
       
       console.log('Opening interview URL:', interviewUrl);
       
