@@ -391,12 +391,14 @@ export default function InterviewScreen() {
   return (
     <AuthGuard>
       <SafeAreaView style={styles.container}>
+        <ScrollView >
         <LinearGradient
           colors={['#0a0a0a', '#1a1a2e', '#16213e']}
           style={styles.gradient}
         >
           <InterviewContent />
         </LinearGradient>
+          </ScrollView>
       </SafeAreaView>
     </AuthGuard>
   );
