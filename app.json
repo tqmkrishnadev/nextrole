@@ -28,12 +28,7 @@
       "expo-font", 
       "expo-web-browser", 
       "expo-document-picker",
-      [
-        "expo-router",
-        {
-          "origin": "https://localhost:8081"
-        }
-      ]
+      "expo-router"
     ],
     "experiments": {
       "typedRoutes": true
