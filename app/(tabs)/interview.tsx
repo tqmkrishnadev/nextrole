@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,12 @@ import {
   Dimensions,
   Platform,
   Alert,
-  Modal
+  Modal,
+  Linking
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -32,10 +32,22 @@ import {
   Smartphone,
   X,
   ArrowLeft,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react-native';
 import { AuthGuard } from '@/components/AuthGuard';
 import { useAuth } from '@/hooks/useAuth';
+
+// Conditionally import WebView only for mobile platforms
+let WebView: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    const RNWebView = require('react-native-webview');
+    WebView = RNWebView.WebView;
+  } catch (error) {
+    console.warn('WebView not available:', error);
+  }
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -67,6 +79,7 @@ const interviewTypeCards = [
   }
 ];
 
+// Mobile WebView Component (only used on mobile platforms)
 function InterviewWebView({ 
   visible, 
   onClose, 
@@ -78,13 +91,18 @@ function InterviewWebView({
   interviewType: string;
   userId: string;
 }) {
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = React.useRef<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
 
+  // Only render on mobile platforms
+  if (Platform.OS === 'web' || !WebView) {
+    return null;
+  }
+
   // Construct the interview URL
-  const interviewUrl = `https://31.97.135.155:5173/`;
+  const interviewUrl = `/mock-interview?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(interviewType)}`;
 
   const handleNavigationStateChange = (navState: any) => {
     setCanGoBack(navState.canGoBack);
@@ -210,7 +228,6 @@ function InterviewWebView({
                 </View>
               )}
               onMessage={(event) => {
-                // Handle messages from the WebView if needed
                 console.log('WebView message:', event.nativeEvent.data);
               }}
               userAgent={Platform.select({
@@ -257,9 +274,42 @@ function InterviewContent() {
       // Set selected card for visual feedback
       setSelectedCard(type);
       
-      // Set current interview type and show WebView
-      setCurrentInterviewType(type);
-      setShowWebView(true);
+      const userId = user?.id || 'anonymous';
+      
+      if (Platform.OS === 'web') {
+        // For web platform, open in new tab
+        const interviewUrl = `/mock-interview?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(type)}`;
+        
+        // Open in new tab/window
+        const newWindow = window.open(interviewUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+        
+        if (!newWindow) {
+          // Fallback if popup blocked
+          Alert.alert(
+            'Interview Ready',
+            'Your interview is ready to start. Click OK to open it in a new tab.',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel'
+              },
+              {
+                text: 'Open Interview',
+                onPress: () => {
+                  Linking.openURL(interviewUrl);
+                }
+              }
+            ]
+          );
+        } else {
+          // Focus the new window
+          newWindow.focus();
+        }
+      } else {
+        // For mobile platforms, use WebView
+        setCurrentInterviewType(type);
+        setShowWebView(true);
+      }
       
       // Reset selected card after a short delay
       setTimeout(() => {
@@ -288,7 +338,7 @@ function InterviewContent() {
         ]
       );
     }
-  }, []);
+  }, [user]);
 
   const handleCloseWebView = useCallback(() => {
     setShowWebView(false);
@@ -339,9 +389,18 @@ function InterviewContent() {
                     <View style={[styles.typeCardIcon, { backgroundColor: `${card.color}20` }]}>
                       <IconComponent color={card.color} size={24} strokeWidth={2} />
                     </View>
-                    <View style={styles.inAppIndicator}>
-                      <Smartphone color={card.color} size={16} strokeWidth={2} />
-                      <Text style={[styles.inAppText, { color: card.color }]}>In-App</Text>
+                    <View style={styles.platformIndicator}>
+                      {Platform.OS === 'web' ? (
+                        <>
+                          <ExternalLink color={card.color} size={16} strokeWidth={2} />
+                          <Text style={[styles.platformText, { color: card.color }]}>New Tab</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Smartphone color={card.color} size={16} strokeWidth={2} />
+                          <Text style={[styles.platformText, { color: card.color }]}>In-App</Text>
+                        </>
+                      )}
                     </View>
                   </View>
 
@@ -366,8 +425,8 @@ function InterviewContent() {
 
                   {/* Loading State */}
                   {isSelected && (
-                    <View style={styles.loadingOverlay}>
-                      <Text style={styles.loadingText}>Starting interview...</Text>
+                    <View style={styles.cardLoadingOverlay}>
+                      <Text style={styles.cardLoadingText}>Starting interview...</Text>
                     </View>
                   )}
                 </View>
@@ -393,7 +452,9 @@ function InterviewContent() {
         </View>
         <Text style={styles.title}>AI Mock Interview</Text>
         <Text style={styles.subtitle}>
-          Choose your interview type. The session will open within the app for seamless experience.
+          Choose your interview type. {Platform.OS === 'web' 
+            ? 'The session will open in a new tab for the best experience.' 
+            : 'The session will open within the app for seamless experience.'}
         </Text>
       </View>
 
@@ -426,11 +487,20 @@ function InterviewContent() {
       {/* Platform Info */}
       <View style={styles.platformInfo}>
         <View style={styles.platformInfoHeader}>
-          <Smartphone color="#4ecdc4" size={20} strokeWidth={2} />
-          <Text style={styles.platformInfoTitle}>In-App Experience</Text>
+          {Platform.OS === 'web' ? (
+            <Globe color="#4ecdc4" size={20} strokeWidth={2} />
+          ) : (
+            <Smartphone color="#4ecdc4" size={20} strokeWidth={2} />
+          )}
+          <Text style={styles.platformInfoTitle}>
+            {Platform.OS === 'web' ? 'Web Browser Experience' : 'In-App Experience'}
+          </Text>
         </View>
         <Text style={styles.platformInfoText}>
-          Your interview will open within the app using an integrated web view. This provides the best experience with ElevenLabs AI agents while keeping you in the app.
+          {Platform.OS === 'web' 
+            ? 'Your interview will open in a new browser tab optimized for ElevenLabs AI agents. This provides the best audio and microphone experience for web browsers.'
+            : 'Your interview will open within the app using an integrated web view. This provides the best experience with ElevenLabs AI agents while keeping you in the app.'
+          }
         </Text>
         
         <View style={styles.platformSupport}>
@@ -459,7 +529,12 @@ function InterviewContent() {
             <View style={styles.instructionNumber}>
               <Text style={styles.instructionNumberText}>2</Text>
             </View>
-            <Text style={styles.instructionText}>Interview opens within the app</Text>
+            <Text style={styles.instructionText}>
+              {Platform.OS === 'web' 
+                ? 'Interview opens in a new browser tab'
+                : 'Interview opens within the app'
+              }
+            </Text>
           </View>
           <View style={styles.instructionItem}>
             <View style={styles.instructionNumber}>
@@ -476,13 +551,15 @@ function InterviewContent() {
         </View>
       </View>
 
-      {/* WebView Modal */}
-      <InterviewWebView
-        visible={showWebView}
-        onClose={handleCloseWebView}
-        interviewType={currentInterviewType}
-        userId={user?.id || 'anonymous'}
-      />
+      {/* WebView Modal (Mobile Only) */}
+      {Platform.OS !== 'web' && WebView && (
+        <InterviewWebView
+          visible={showWebView}
+          onClose={handleCloseWebView}
+          interviewType={currentInterviewType}
+          userId={user?.id || 'anonymous'}
+        />
+      )}
     </View>
   );
 }
@@ -607,7 +684,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  inAppIndicator: {
+  platformIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -615,7 +692,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  inAppText: {
+  platformText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     marginLeft: 4,
@@ -650,7 +727,7 @@ const styles = StyleSheet.create({
     color: 'white',
     marginRight: 8,
   },
-  loadingOverlay: {
+  cardLoadingOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -661,7 +738,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 20,
   },
-  loadingText: {
+  cardLoadingText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: 'white',
@@ -780,7 +857,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // WebView Styles
+  // WebView Styles (Mobile Only)
   webViewContainer: {
     flex: 1,
     backgroundColor: '#0a0a0a',
@@ -840,6 +917,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  loadingText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
   loadingSubtext: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
@@ -850,6 +932,16 @@ const styles = StyleSheet.create({
   loadingContent: {
     alignItems: 'center',
     paddingHorizontal: 40,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   errorContainer: {
     flex: 1,
