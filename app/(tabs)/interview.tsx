@@ -33,7 +33,10 @@ import {
   X,
   ArrowLeft,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  AlertTriangle,
+  Wifi,
+  Shield
 } from 'lucide-react-native';
 import { AuthGuard } from '@/components/AuthGuard';
 import { useAuth } from '@/hooks/useAuth';
@@ -94,35 +97,94 @@ function InterviewWebView({
   const webViewRef = React.useRef<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [canGoBack, setCanGoBack] = useState(false);
+  const [loadAttempts, setLoadAttempts] = useState(0);
 
   // Only render on mobile platforms
   if (Platform.OS === 'web' || !WebView) {
     return null;
   }
 
-  // Construct the interview URL
-  const interviewUrl = `https://31.97.135.155:5173/`;
+  // Use HTTP instead of HTTPS for better compatibility
+  const interviewUrl = `http://31.97.135.155:5173/?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(interviewType)}`;
 
   const handleNavigationStateChange = (navState: any) => {
+    console.log('Navigation state changed:', navState);
     setCanGoBack(navState.canGoBack);
+    
+    // Check for specific error conditions
+    if (navState.url && navState.url.includes('error')) {
+      setHasError(true);
+      setErrorMessage('Failed to load interview page');
+    }
   };
 
-  const handleLoadStart = () => {
+  const handleLoadStart = (syntheticEvent: any) => {
+    console.log('WebView load started:', syntheticEvent.nativeEvent);
     setIsLoading(true);
     setHasError(false);
+    setErrorMessage('');
   };
 
-  const handleLoadEnd = () => {
+  const handleLoadEnd = (syntheticEvent: any) => {
+    console.log('WebView load ended:', syntheticEvent.nativeEvent);
     setIsLoading(false);
+    
+    // Check if the page loaded successfully
+    const { url, title } = syntheticEvent.nativeEvent;
+    if (url && !url.includes('error') && !title?.includes('error')) {
+      setHasError(false);
+    }
   };
 
-  const handleError = () => {
+  const handleError = (syntheticEvent: any) => {
+    console.error('WebView error:', syntheticEvent.nativeEvent);
     setIsLoading(false);
     setHasError(true);
+    
+    const { description, code } = syntheticEvent.nativeEvent;
+    let userFriendlyMessage = 'Unable to load the interview page.';
+    
+    if (code === -1009 || description?.includes('offline')) {
+      userFriendlyMessage = 'No internet connection. Please check your network and try again.';
+    } else if (code === -1200 || description?.includes('SSL')) {
+      userFriendlyMessage = 'Security certificate issue. The interview server may be temporarily unavailable.';
+    } else if (code === -1001 || description?.includes('timeout')) {
+      userFriendlyMessage = 'Connection timeout. Please check your internet connection and try again.';
+    } else if (description?.includes('host')) {
+      userFriendlyMessage = 'Cannot reach the interview server. Please try again later.';
+    }
+    
+    setErrorMessage(userFriendlyMessage);
+  };
+
+  const handleHttpError = (syntheticEvent: any) => {
+    console.error('WebView HTTP error:', syntheticEvent.nativeEvent);
+    setIsLoading(false);
+    setHasError(true);
+    
+    const { statusCode, description } = syntheticEvent.nativeEvent;
+    let userFriendlyMessage = 'Server error occurred.';
+    
+    if (statusCode === 404) {
+      userFriendlyMessage = 'Interview page not found. Please try again later.';
+    } else if (statusCode === 500) {
+      userFriendlyMessage = 'Server is temporarily unavailable. Please try again later.';
+    } else if (statusCode === 503) {
+      userFriendlyMessage = 'Service is temporarily unavailable. Please try again later.';
+    }
+    
+    setErrorMessage(userFriendlyMessage);
   };
 
   const handleRefresh = () => {
+    console.log('Refreshing WebView...');
+    setLoadAttempts(prev => prev + 1);
+    setHasError(false);
+    setErrorMessage('');
+    setIsLoading(true);
+    
     if (webViewRef.current) {
       webViewRef.current.reload();
     }
@@ -135,6 +197,108 @@ function InterviewWebView({
       onClose();
     }
   };
+
+  const handleOpenInBrowser = () => {
+    Alert.alert(
+      'Open in Browser',
+      'Would you like to open the interview in your default browser instead?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Open Browser', 
+          onPress: () => {
+            Linking.openURL(interviewUrl);
+            onClose();
+          }
+        }
+      ]
+    );
+  };
+
+  // Show alternative options if too many failed attempts
+  if (loadAttempts >= 3 && hasError) {
+    return (
+      <Modal
+        visible={visible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={onClose}
+      >
+        <SafeAreaView style={styles.webViewContainer}>
+          <View style={styles.webViewHeader}>
+            <TouchableOpacity 
+              style={styles.webViewHeaderButton}
+              onPress={onClose}
+            >
+              <ArrowLeft color="white" size={24} strokeWidth={2} />
+            </TouchableOpacity>
+            
+            <View style={styles.webViewHeaderTitle}>
+              <Text style={styles.webViewHeaderText}>Interview Unavailable</Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.webViewHeaderButton}
+              onPress={onClose}
+            >
+              <X color="white" size={24} strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.alternativeContainer}>
+            <View style={styles.alternativeContent}>
+              <AlertTriangle color="#ff6b6b" size={64} strokeWidth={2} />
+              
+              <Text style={styles.alternativeTitle}>Interview Temporarily Unavailable</Text>
+              <Text style={styles.alternativeText}>
+                We're having trouble loading the interview in the app. This might be due to network issues or server maintenance.
+              </Text>
+
+              <View style={styles.alternativeOptions}>
+                <TouchableOpacity style={styles.alternativeButton} onPress={handleOpenInBrowser}>
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2']}
+                    style={styles.alternativeButtonGradient}
+                  >
+                    <Globe color="white" size={20} strokeWidth={2} />
+                    <Text style={styles.alternativeButtonText}>Open in Browser</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.alternativeButtonSecondary} onPress={handleRefresh}>
+                  <RefreshCw color="#667eea" size={20} strokeWidth={2} />
+                  <Text style={styles.alternativeButtonSecondaryText}>Try Again</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.alternativeButtonSecondary} onPress={onClose}>
+                  <ArrowLeft color="rgba(255, 255, 255, 0.7)" size={20} strokeWidth={2} />
+                  <Text style={styles.alternativeButtonSecondaryText}>Back to App</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.troubleshootingTips}>
+                <Text style={styles.troubleshootingTitle}>Troubleshooting Tips:</Text>
+                <View style={styles.troubleshootingList}>
+                  <View style={styles.troubleshootingItem}>
+                    <Wifi color="#4ecdc4" size={16} strokeWidth={2} />
+                    <Text style={styles.troubleshootingItemText}>Check your internet connection</Text>
+                  </View>
+                  <View style={styles.troubleshootingItem}>
+                    <Shield color="#4ecdc4" size={16} strokeWidth={2} />
+                    <Text style={styles.troubleshootingItemText}>Try using your browser instead</Text>
+                  </View>
+                  <View style={styles.troubleshootingItem}>
+                    <RefreshCw color="#4ecdc4" size={16} strokeWidth={2} />
+                    <Text style={styles.troubleshootingItemText}>Wait a few minutes and try again</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -183,19 +347,30 @@ function InterviewWebView({
         <View style={styles.webViewContent}>
           {hasError ? (
             <View style={styles.errorContainer}>
+              <AlertTriangle color="#ff6b6b" size={48} strokeWidth={2} />
               <Text style={styles.errorTitle}>Connection Error</Text>
-              <Text style={styles.errorText}>
-                Unable to load the interview page. Please check your internet connection and try again.
+              <Text style={styles.errorText}>{errorMessage}</Text>
+              
+              <View style={styles.errorActions}>
+                <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2']}
+                    style={styles.retryButtonGradient}
+                  >
+                    <RefreshCw color="white" size={20} strokeWidth={2} />
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                
+                <TouchableOpacity style={styles.browserButton} onPress={handleOpenInBrowser}>
+                  <Globe color="#667eea" size={20} strokeWidth={2} />
+                  <Text style={styles.browserButtonText}>Open in Browser</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.errorHint}>
+                If the problem persists, try opening the interview in your browser for the best experience.
               </Text>
-              <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
-                <LinearGradient
-                  colors={['#667eea', '#764ba2']}
-                  style={styles.retryButtonGradient}
-                >
-                  <RefreshCw color="white" size={20} strokeWidth={2} />
-                  <Text style={styles.retryButtonText}>Retry</Text>
-                </LinearGradient>
-              </TouchableOpacity>
             </View>
           ) : (
             <WebView
@@ -205,6 +380,7 @@ function InterviewWebView({
               onLoadStart={handleLoadStart}
               onLoadEnd={handleLoadEnd}
               onError={handleError}
+              onHttpError={handleHttpError}
               onNavigationStateChange={handleNavigationStateChange}
               javaScriptEnabled={true}
               domStorageEnabled={true}
@@ -213,6 +389,11 @@ function InterviewWebView({
               mixedContentMode="compatibility"
               originWhitelist={['*']}
               startInLoadingState={true}
+              scalesPageToFit={true}
+              bounces={false}
+              scrollEnabled={true}
+              automaticallyAdjustContentInsets={false}
+              contentInset={{ top: 0, left: 0, bottom: 0, right: 0 }}
               renderLoading={() => (
                 <View style={styles.loadingContainer}>
                   <LinearGradient
@@ -225,16 +406,38 @@ function InterviewWebView({
                   <Text style={styles.loadingSubtext}>
                     Connecting to ElevenLabs AI Agent
                   </Text>
+                  {loadAttempts > 0 && (
+                    <Text style={styles.loadingAttempts}>
+                      Attempt {loadAttempts + 1}
+                    </Text>
+                  )}
                 </View>
               )}
               onMessage={(event) => {
                 console.log('WebView message:', event.nativeEvent.data);
               }}
               userAgent={Platform.select({
-                ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-                android: 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+                ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 NextRoleAI/1.0',
+                android: 'Mozilla/5.0 (Linux; Android 11; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36 NextRoleAI/1.0',
                 default: undefined
               })}
+              // Enhanced error handling
+              onShouldStartLoadWithRequest={(request) => {
+                console.log('Should start load with request:', request);
+                return true;
+              }}
+              // Memory management
+              cacheEnabled={false}
+              incognito={false}
+              // Security settings
+              allowsBackForwardNavigationGestures={true}
+              allowsLinkPreview={false}
+              allowFileAccess={false}
+              allowUniversalAccessFromFileURLs={false}
+              allowFileAccessFromFileURLs={false}
+              // Performance settings
+              androidHardwareAccelerationDisabled={false}
+              androidLayerType="hardware"
             />
           )}
         </View>
@@ -253,6 +456,11 @@ function InterviewWebView({
               <Text style={styles.loadingSubtext}>
                 Preparing your AI-powered mock interview
               </Text>
+              {loadAttempts > 0 && (
+                <Text style={styles.loadingAttempts}>
+                  Attempt {loadAttempts + 1}
+                </Text>
+              )}
             </View>
           </View>
         )}
@@ -278,7 +486,7 @@ function InterviewContent() {
       
       if (Platform.OS === 'web') {
         // For web platform, open in new tab
-        const interviewUrl = `https://31.97.135.155:5173/`;
+        const interviewUrl = `/mock-interview?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(type)}`;
         
         // Open in new tab/window
         const newWindow = window.open(interviewUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
@@ -322,11 +530,18 @@ function InterviewContent() {
       // Reset selected card
       setSelectedCard(null);
       
-      // Show error message
+      // Show error message with more options
       Alert.alert(
         'Unable to Start Interview',
-        'We encountered an error starting the interview. Please try again.',
+        'We encountered an error starting the interview. Would you like to try opening it in your browser instead?',
         [
+          {
+            text: 'Try Browser',
+            onPress: () => {
+              const interviewUrl = `http://31.97.135.155:5173/?userId=${encodeURIComponent(user?.id || 'anonymous')}&type=${encodeURIComponent(type)}`;
+              Linking.openURL(interviewUrl);
+            }
+          },
           {
             text: 'Retry',
             onPress: () => handleStartInterview(type)
@@ -454,7 +669,7 @@ function InterviewContent() {
         <Text style={styles.subtitle}>
           Choose your interview type. {Platform.OS === 'web' 
             ? 'The session will open in a new tab for the best experience.' 
-            : 'The session will open within the app for seamless experience.'}
+            : 'The session will open within the app. If you experience issues, we\'ll offer to open it in your browser.'}
         </Text>
       </View>
 
@@ -493,13 +708,13 @@ function InterviewContent() {
             <Smartphone color="#4ecdc4" size={20} strokeWidth={2} />
           )}
           <Text style={styles.platformInfoTitle}>
-            {Platform.OS === 'web' ? 'Web Browser Experience' : 'In-App Experience'}
+            {Platform.OS === 'web' ? 'Web Browser Experience' : 'Flexible Experience'}
           </Text>
         </View>
         <Text style={styles.platformInfoText}>
           {Platform.OS === 'web' 
             ? 'Your interview will open in a new browser tab optimized for ElevenLabs AI agents. This provides the best audio and microphone experience for web browsers.'
-            : 'Your interview will open within the app using an integrated web view. This provides the best experience with ElevenLabs AI agents while keeping you in the app.'
+            : 'Your interview will first try to open within the app. If there are any issues, you can easily switch to your browser for the best experience with ElevenLabs AI agents.'
           }
         </Text>
         
@@ -512,6 +727,12 @@ function InterviewContent() {
             <Mic color="#4ecdc4" size={16} strokeWidth={2} />
             <Text style={styles.supportText}>Voice Enabled</Text>
           </View>
+          {Platform.OS !== 'web' && (
+            <View style={styles.supportItem}>
+              <Shield color="#4ecdc4" size={16} strokeWidth={2} />
+              <Text style={styles.supportText}>Fallback Options</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -532,7 +753,7 @@ function InterviewContent() {
             <Text style={styles.instructionText}>
               {Platform.OS === 'web' 
                 ? 'Interview opens in a new browser tab'
-                : 'Interview opens within the app'
+                : 'Interview opens within the app (or browser if needed)'
               }
             </Text>
           </View>
@@ -801,6 +1022,8 @@ const styles = StyleSheet.create({
   platformSupport: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   supportItem: {
     flexDirection: 'row',
@@ -929,6 +1152,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  loadingAttempts: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 8,
+  },
   loadingContent: {
     alignItems: 'center',
     paddingHorizontal: 40,
@@ -955,6 +1184,7 @@ const styles = StyleSheet.create({
     fontFamily: 'SpaceGrotesk-Bold',
     color: '#ff6b6b',
     marginBottom: 16,
+    marginTop: 16,
     textAlign: 'center',
   },
   errorText: {
@@ -964,6 +1194,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 24,
   },
   retryButton: {
     borderRadius: 12,
@@ -981,5 +1216,126 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: 'white',
     marginLeft: 8,
+  },
+  browserButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
+  },
+  browserButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: '#667eea',
+    marginLeft: 8,
+  },
+  errorHint: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  // Alternative Container Styles
+  alternativeContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0a0a0a',
+    paddingHorizontal: 24,
+  },
+  alternativeContent: {
+    alignItems: 'center',
+    maxWidth: 400,
+  },
+  alternativeTitle: {
+    fontSize: 24,
+    fontFamily: 'SpaceGrotesk-Bold',
+    color: 'white',
+    marginTop: 24,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  alternativeText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  alternativeOptions: {
+    width: '100%',
+    gap: 16,
+    marginBottom: 32,
+  },
+  alternativeButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  alternativeButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+  },
+  alternativeButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
+    marginLeft: 8,
+  },
+  alternativeButtonSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  alternativeButtonSecondaryText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginLeft: 8,
+  },
+  troubleshootingTips: {
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  troubleshootingTitle: {
+    fontSize: 16,
+    fontFamily: 'SpaceGrotesk-SemiBold',
+    color: 'white',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  troubleshootingList: {
+    gap: 12,
+  },
+  troubleshootingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  troubleshootingItemText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginLeft: 12,
+    flex: 1,
   },
 });
