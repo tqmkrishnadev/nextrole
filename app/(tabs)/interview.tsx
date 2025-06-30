@@ -278,7 +278,7 @@ function InterviewContent() {
       
       if (Platform.OS === 'web') {
         // For web platform, open in new tab
-        const interviewUrl = `/mock-interview?userId=${encodeURIComponent(userId)}&type=${encodeURIComponent(type)}`;
+        const interviewUrl = `https://31.97.135.155:5173/`;
         
         // Open in new tab/window
         const newWindow = window.open(interviewUrl, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
