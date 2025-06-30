@@ -21,23 +21,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { 
-  Mic, 
-  Brain, 
-  MessageCircle, 
-  Target, 
-  Zap, 
-  Award, 
-  Globe, 
-  Smartphone,
-  X,
-  ArrowLeft,
-  RefreshCw,
-  ExternalLink,
-  AlertTriangle,
-  Wifi,
-  Shield
-} from 'lucide-react-native';
+import { Mic, Brain, MessageCircle, Target, Zap, Award, Globe, Smartphone, X, ArrowLeft, RefreshCw, ExternalLink, TriangleAlert as AlertTriangle, Wifi, Shield } from 'lucide-react-native';
 import { AuthGuard } from '@/components/AuthGuard';
 import { useAuth } from '@/hooks/useAuth';
 
