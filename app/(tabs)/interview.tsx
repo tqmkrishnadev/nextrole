@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,12 @@ import {
   Dimensions,
   Platform,
   Alert,
-  Linking
+  Modal
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -29,8 +30,9 @@ import {
   Award, 
   Globe, 
   Smartphone,
-  ExternalLink,
-  ArrowRight
+  X,
+  ArrowLeft,
+  RefreshCw
 } from 'lucide-react-native';
 import { AuthGuard } from '@/components/AuthGuard';
 import { useAuth } from '@/hooks/useAuth';
@@ -65,49 +67,207 @@ const interviewTypeCards = [
   }
 ];
 
+function InterviewWebView({ 
+  visible, 
+  onClose, 
+  interviewType, 
+  userId 
+}: {
+  visible: boolean;
+  onClose: () => void;
+  interviewType: string;
+  userId: string;
+}) {
+  const webViewRef = useRef<WebView>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [canGoBack, setCanGoBack] = useState(false);
+
+  // Construct the interview URL
+  const interviewUrl = `https://31.97.135.155:5173/`;
+
+  const handleNavigationStateChange = (navState: any) => {
+    setCanGoBack(navState.canGoBack);
+  };
+
+  const handleLoadStart = () => {
+    setIsLoading(true);
+    setHasError(false);
+  };
+
+  const handleLoadEnd = () => {
+    setIsLoading(false);
+  };
+
+  const handleError = () => {
+    setIsLoading(false);
+    setHasError(true);
+  };
+
+  const handleRefresh = () => {
+    if (webViewRef.current) {
+      webViewRef.current.reload();
+    }
+  };
+
+  const handleGoBack = () => {
+    if (canGoBack && webViewRef.current) {
+      webViewRef.current.goBack();
+    } else {
+      onClose();
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={styles.webViewContainer}>
+        {/* Header */}
+        <View style={styles.webViewHeader}>
+          <TouchableOpacity 
+            style={styles.webViewHeaderButton}
+            onPress={handleGoBack}
+          >
+            <ArrowLeft color="white" size={24} strokeWidth={2} />
+          </TouchableOpacity>
+          
+          <View style={styles.webViewHeaderTitle}>
+            <Text style={styles.webViewHeaderText}>
+              {interviewType.charAt(0).toUpperCase() + interviewType.slice(1)} Interview
+            </Text>
+            {isLoading && (
+              <Text style={styles.webViewHeaderSubtext}>Loading...</Text>
+            )}
+          </View>
+          
+          <View style={styles.webViewHeaderActions}>
+            <TouchableOpacity 
+              style={styles.webViewHeaderButton}
+              onPress={handleRefresh}
+            >
+              <RefreshCw color="white" size={20} strokeWidth={2} />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.webViewHeaderButton}
+              onPress={onClose}
+            >
+              <X color="white" size={24} strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* WebView */}
+        <View style={styles.webViewContent}>
+          {hasError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorTitle}>Connection Error</Text>
+              <Text style={styles.errorText}>
+                Unable to load the interview page. Please check your internet connection and try again.
+              </Text>
+              <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  style={styles.retryButtonGradient}
+                >
+                  <RefreshCw color="white" size={20} strokeWidth={2} />
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <WebView
+              ref={webViewRef}
+              source={{ uri: interviewUrl }}
+              style={styles.webView}
+              onLoadStart={handleLoadStart}
+              onLoadEnd={handleLoadEnd}
+              onError={handleError}
+              onNavigationStateChange={handleNavigationStateChange}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              mediaPlaybackRequiresUserAction={false}
+              allowsInlineMediaPlayback={true}
+              mixedContentMode="compatibility"
+              originWhitelist={['*']}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.loadingContainer}>
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2', '#f093fb']}
+                    style={styles.loadingLogo}
+                  >
+                    <Brain color="white" size={32} strokeWidth={2} />
+                  </LinearGradient>
+                  <Text style={styles.loadingText}>Loading Interview...</Text>
+                  <Text style={styles.loadingSubtext}>
+                    Connecting to ElevenLabs AI Agent
+                  </Text>
+                </View>
+              )}
+              onMessage={(event) => {
+                // Handle messages from the WebView if needed
+                console.log('WebView message:', event.nativeEvent.data);
+              }}
+              userAgent={Platform.select({
+                ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+                android: 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+                default: undefined
+              })}
+            />
+          )}
+        </View>
+
+        {/* Loading Overlay */}
+        {isLoading && !hasError && (
+          <View style={styles.loadingOverlay}>
+            <View style={styles.loadingContent}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2', '#f093fb']}
+                style={styles.loadingLogo}
+              >
+                <Brain color="white" size={32} strokeWidth={2} />
+              </LinearGradient>
+              <Text style={styles.loadingText}>Loading Interview...</Text>
+              <Text style={styles.loadingSubtext}>
+                Preparing your AI-powered mock interview
+              </Text>
+            </View>
+          </View>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 function InterviewContent() {
   const { user, profile } = useAuth();
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const [showWebView, setShowWebView] = useState(false);
+  const [currentInterviewType, setCurrentInterviewType] = useState<string>('');
 
   const handleStartInterview = useCallback(async (type: 'behavioral' | 'technical' | 'leadership') => {
     try {
-      // Get user ID for the URL
-      const userId = user?.id || 'anonymous';
-      
-      // Construct the interview URL with query parameters
-      const baseUrl = process.env.EXPO_PUBLIC_INTERVIEW_WEB_URL || 'https://31.97.135.155:5173';
-      const interviewUrl = `${baseUrl}`;
-      
-      console.log('Opening interview URL:', interviewUrl);
+      console.log('Starting interview:', type);
       
       // Set selected card for visual feedback
       setSelectedCard(type);
       
-      // Check if URL can be opened
-      const canOpen = await Linking.canOpenURL(interviewUrl);
+      // Set current interview type and show WebView
+      setCurrentInterviewType(type);
+      setShowWebView(true);
       
-      if (canOpen) {
-        // Open the URL in the default browser
-        await Linking.openURL(interviewUrl);
-        
-        // Show success message
-        if (Platform.OS !== 'web') {
-          Alert.alert(
-            'Interview Started',
-            'Your mock interview has opened in your browser. Complete the interview there and return to the app when finished.',
-            [
-              {
-                text: 'OK',
-                onPress: () => setSelectedCard(null)
-              }
-            ]
-          );
-        }
-      } else {
-        throw new Error('Cannot open interview URL');
-      }
+      // Reset selected card after a short delay
+      setTimeout(() => {
+        setSelectedCard(null);
+      }, 1000);
+      
     } catch (error) {
-      console.error('Error opening interview:', error);
+      console.error('Error starting interview:', error);
       
       // Reset selected card
       setSelectedCard(null);
@@ -115,7 +275,7 @@ function InterviewContent() {
       // Show error message
       Alert.alert(
         'Unable to Start Interview',
-        'We couldn\'t open the interview in your browser. Please check your internet connection and try again.',
+        'We encountered an error starting the interview. Please try again.',
         [
           {
             text: 'Retry',
@@ -128,7 +288,12 @@ function InterviewContent() {
         ]
       );
     }
-  }, [user?.id]);
+  }, []);
+
+  const handleCloseWebView = useCallback(() => {
+    setShowWebView(false);
+    setCurrentInterviewType('');
+  }, []);
 
   // Memoized interview card component
   const InterviewCard = React.memo(({ card }: { card: typeof interviewTypeCards[0] }) => {
@@ -174,9 +339,9 @@ function InterviewContent() {
                     <View style={[styles.typeCardIcon, { backgroundColor: `${card.color}20` }]}>
                       <IconComponent color={card.color} size={24} strokeWidth={2} />
                     </View>
-                    <View style={styles.browserIndicator}>
-                      <Globe color={card.color} size={16} strokeWidth={2} />
-                      <Text style={[styles.browserText, { color: card.color }]}>Browser</Text>
+                    <View style={styles.inAppIndicator}>
+                      <Smartphone color={card.color} size={16} strokeWidth={2} />
+                      <Text style={[styles.inAppText, { color: card.color }]}>In-App</Text>
                     </View>
                   </View>
 
@@ -191,10 +356,10 @@ function InterviewContent() {
                       style={styles.actionButton}
                     >
                       <Text style={styles.actionButtonText}>
-                        {isSelected ? 'Opening...' : 'Start Interview'}
+                        {isSelected ? 'Starting...' : 'Start Interview'}
                       </Text>
                       {!isSelected && (
-                        <ExternalLink color="white" size={16} strokeWidth={2} />
+                        <Mic color="white" size={16} strokeWidth={2} />
                       )}
                     </LinearGradient>
                   </View>
@@ -202,7 +367,7 @@ function InterviewContent() {
                   {/* Loading State */}
                   {isSelected && (
                     <View style={styles.loadingOverlay}>
-                      <Text style={styles.loadingText}>Opening in browser...</Text>
+                      <Text style={styles.loadingText}>Starting interview...</Text>
                     </View>
                   )}
                 </View>
@@ -228,7 +393,7 @@ function InterviewContent() {
         </View>
         <Text style={styles.title}>AI Mock Interview</Text>
         <Text style={styles.subtitle}>
-          Choose your interview type. The session will open in your browser for the best experience.
+          Choose your interview type. The session will open within the app for seamless experience.
         </Text>
       </View>
 
@@ -261,17 +426,17 @@ function InterviewContent() {
       {/* Platform Info */}
       <View style={styles.platformInfo}>
         <View style={styles.platformInfoHeader}>
-          <Globe color="#4ecdc4" size={20} strokeWidth={2} />
-          <Text style={styles.platformInfoTitle}>Browser Experience</Text>
+          <Smartphone color="#4ecdc4" size={20} strokeWidth={2} />
+          <Text style={styles.platformInfoTitle}>In-App Experience</Text>
         </View>
         <Text style={styles.platformInfoText}>
-          For the best interview experience with real-time voice interaction, interviews are conducted in your browser where ElevenLabs AI agents are fully supported.
+          Your interview will open within the app using an integrated web view. This provides the best experience with ElevenLabs AI agents while keeping you in the app.
         </Text>
         
         <View style={styles.platformSupport}>
           <View style={styles.supportItem}>
-            <Smartphone color="#4ecdc4" size={16} strokeWidth={2} />
-            <Text style={styles.supportText}>Mobile Optimized</Text>
+            <Globe color="#4ecdc4" size={16} strokeWidth={2} />
+            <Text style={styles.supportText}>Web Technology</Text>
           </View>
           <View style={styles.supportItem}>
             <Mic color="#4ecdc4" size={16} strokeWidth={2} />
@@ -294,22 +459,30 @@ function InterviewContent() {
             <View style={styles.instructionNumber}>
               <Text style={styles.instructionNumberText}>2</Text>
             </View>
-            <Text style={styles.instructionText}>Your browser will open automatically</Text>
+            <Text style={styles.instructionText}>Interview opens within the app</Text>
           </View>
           <View style={styles.instructionItem}>
             <View style={styles.instructionNumber}>
               <Text style={styles.instructionNumberText}>3</Text>
             </View>
-            <Text style={styles.instructionText}>Complete your interview with AI agent</Text>
+            <Text style={styles.instructionText}>Allow microphone access when prompted</Text>
           </View>
           <View style={styles.instructionItem}>
             <View style={styles.instructionNumber}>
               <Text style={styles.instructionNumberText}>4</Text>
             </View>
-            <Text style={styles.instructionText}>Return to the app when finished</Text>
+            <Text style={styles.instructionText}>Complete your interview with AI agent</Text>
           </View>
         </View>
       </View>
+
+      {/* WebView Modal */}
+      <InterviewWebView
+        visible={showWebView}
+        onClose={handleCloseWebView}
+        interviewType={currentInterviewType}
+        userId={user?.id || 'anonymous'}
+      />
     </View>
   );
 }
@@ -434,7 +607,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  browserIndicator: {
+  inAppIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -442,7 +615,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  browserText: {
+  inAppText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     marginLeft: 4,
@@ -605,5 +778,116 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     color: 'rgba(255, 255, 255, 0.8)',
     flex: 1,
+  },
+
+  // WebView Styles
+  webViewContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  webViewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(10, 10, 10, 0.95)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  webViewHeaderButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  webViewHeaderTitle: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 16,
+  },
+  webViewHeaderText: {
+    fontSize: 16,
+    fontFamily: 'SpaceGrotesk-SemiBold',
+    color: 'white',
+  },
+  webViewHeaderSubtext: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 2,
+  },
+  webViewHeaderActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  webViewContent: {
+    flex: 1,
+  },
+  webView: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0a0a0a',
+  },
+  loadingLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  loadingSubtext: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  loadingContent: {
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0a0a0a',
+    paddingHorizontal: 40,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontFamily: 'SpaceGrotesk-Bold',
+    color: '#ff6b6b',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  retryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  retryButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: 'white',
+    marginLeft: 8,
   },
 });
